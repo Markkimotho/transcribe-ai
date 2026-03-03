@@ -1,8 +1,8 @@
-# TranscribeAI
+# Voxail
 
 AI-powered audio transcription built with React, Vite, and Claude. Upload an audio file and get an accurate, well-formatted transcript with optional speaker labels and timestamps.
 
-![TranscribeAI](https://img.shields.io/badge/Powered%20by-Claude%20AI-e8ff47?style=flat-square) ![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=white) ![Vite](https://img.shields.io/badge/Vite-5-646CFF?style=flat-square&logo=vite&logoColor=white)
+![Voxail](https://img.shields.io/badge/Powered%20by-Claude%20AI-e8ff47?style=flat-square) ![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=white) ![Vite](https://img.shields.io/badge/Vite-5-646CFF?style=flat-square&logo=vite&logoColor=white)
 
 ## Features
 
@@ -55,7 +55,7 @@ Open **http://localhost:5173**
 ## Project Structure
 
 ```
-transcribe-ai/
+voxail/
 ├── server/
 │   └── index.js              # Express proxy + Anthropic SDK
 ├── src/
@@ -89,7 +89,7 @@ transcribe-ai/
 | **Railway** | Push to GitHub → connect repo → set `ANTHROPIC_API_KEY` env var → deploy |
 | **Vercel + Render** | Frontend on Vercel, backend on Render. Update CORS origins. |
 | **Static (direct mode)** | `npm run build` → deploy `dist/` to Netlify/Cloudflare/GitHub Pages |
-| **Docker** | `docker build -t transcribe-ai . && docker run -p 3001:3001 -e ANTHROPIC_API_KEY=... transcribe-ai` |
+| **Docker** | `docker build -t voxail . && docker run -p 3001:3001 -e ANTHROPIC_API_KEY=... voxail` |
 
 See [SETUP.md](SETUP.md) for detailed instructions.
 

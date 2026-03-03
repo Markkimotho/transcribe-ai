@@ -19,7 +19,7 @@ export default function Header() {
           <div>
             <h1 className="font-display font-extrabold text-xl tracking-tight"
               style={{ background: 'linear-gradient(135deg,#e8ff47,#ff6b35)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-              TranscribeAI
+              Voxail
             </h1>
             <button
               onClick={toggleApiMode}

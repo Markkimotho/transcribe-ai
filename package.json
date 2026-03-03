@@ -1,5 +1,5 @@
 {
-  "name": "transcribe-ai",
+  "name": "voxail",
   "version": "1.0.0",
   "description": "AI-powered audio transcription using Claude",
   "type": "module",
