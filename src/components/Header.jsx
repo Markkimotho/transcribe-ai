@@ -1,9 +1,9 @@
 import { useContext } from 'react'
 import { AppContext } from '../context/AppContext'
-import { Sun, Moon, Server, KeyRound } from 'lucide-react'
+import { Sun, Moon, Server, KeyRound, ArrowLeftRight } from 'lucide-react'
 
 export default function Header() {
-  const { theme, toggleTheme, apiMode } = useContext(AppContext)
+  const { theme, toggleTheme, apiMode, toggleApiMode } = useContext(AppContext)
   return (
     <header className="w-full border-b" style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}>
       <div className="max-w-2xl mx-auto px-4 h-16 flex items-center justify-between">
@@ -21,12 +21,18 @@ export default function Header() {
               style={{ background: 'linear-gradient(135deg,#e8ff47,#ff6b35)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
               TranscribeAI
             </h1>
-            <p className="text-[10px] font-mono flex items-center gap-1.5" style={{ color: 'var(--muted)' }}>
+            <button
+              onClick={toggleApiMode}
+              className="flex items-center gap-1.5 text-[10px] font-mono transition-colors hover:text-yellow-300/80 group"
+              style={{ color: 'var(--muted)' }}
+              title="Click to switch API mode"
+            >
               {apiMode === 'proxy'
                 ? <><Server size={10} /> Server mode</>
                 : <><KeyRound size={10} /> Direct mode</>
               }
-            </p>
+              <ArrowLeftRight size={8} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+            </button>
           </div>
         </div>
         <button
