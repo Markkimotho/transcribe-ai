@@ -31,8 +31,8 @@ export function useTranscribe() {
         setStatus('Sending to server...')
         result = await transcribeViaProxy(file, prompt)
       } else {
-        if (!apiKey) throw new Error('Please enter your Anthropic API key above.')
-        setStatus('Sending to Claude AI...')
+        if (!apiKey) throw new Error('Please enter your Gemini API key above.')
+        setStatus('Sending to Gemini AI...')
         result = await transcribeDirect(file, prompt, apiKey)
       }
       setTranscript(result)

@@ -3,7 +3,7 @@ import { createContext, useState, useEffect } from 'react'
 export const AppContext = createContext(null)
 
 // "proxy"  → all calls go through your Express backend (key is hidden)
-// "direct" → user enters their own Anthropic API key in the UI
+// "direct" → user enters their own Gemini API key in the UI
 const ENV_MODE = import.meta.env.VITE_API_MODE || 'direct'
 
 export function AppProvider({ children }) {
@@ -14,7 +14,7 @@ export function AppProvider({ children }) {
     localStorage.getItem('api_mode') || ENV_MODE
   )
   const [apiKey, setApiKey] = useState(() =>
-    localStorage.getItem('anthropic_key') || ''
+    localStorage.getItem('gemini_key') || ''
   )
 
   // Apply theme class to <html>
@@ -25,8 +25,8 @@ export function AppProvider({ children }) {
 
   // Persist user-supplied key
   useEffect(() => {
-    if (apiKey) localStorage.setItem('anthropic_key', apiKey)
-    else localStorage.removeItem('anthropic_key')
+    if (apiKey) localStorage.setItem('gemini_key', apiKey)
+    else localStorage.removeItem('gemini_key')
   }, [apiKey])
 
   // Persist api mode

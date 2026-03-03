@@ -1,8 +1,8 @@
 # Voxail
 
-AI-powered audio transcription built with React, Vite, and Claude. Upload an audio file and get an accurate, well-formatted transcript with optional speaker labels and timestamps.
+AI-powered audio transcription built with React, Vite, and Gemini. Upload an audio file and get an accurate, well-formatted transcript with optional speaker labels and timestamps.
 
-![Voxail](https://img.shields.io/badge/Powered%20by-Claude%20AI-e8ff47?style=flat-square) ![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=white) ![Vite](https://img.shields.io/badge/Vite-5-646CFF?style=flat-square&logo=vite&logoColor=white)
+![Voxail](https://img.shields.io/badge/Powered%20by-Gemini%20AI-e8ff47?style=flat-square) ![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=white) ![Vite](https://img.shields.io/badge/Vite-5-646CFF?style=flat-square&logo=vite&logoColor=white)
 
 ## Features
 
@@ -14,7 +14,7 @@ AI-powered audio transcription built with React, Vite, and Claude. Upload an aud
 - **Audio type detection** — adapts output for podcasts, meetings, lectures, voicemails, and more
 - **Two API modes** — switchable from the UI:
   - **Server mode** — API key stays hidden on your Express backend
-  - **Direct mode** — users bring their own Anthropic key (no backend needed)
+  - **Direct mode** — users bring their own Gemini key (no backend needed)
 - **Dark/light theme** — toggle from the header
 - **Copy & download** — one-click copy or download transcript as `.txt`
 
@@ -24,7 +24,7 @@ AI-powered audio transcription built with React, Vite, and Claude. Upload an aud
 # Install dependencies
 npm install
 
-# Copy env and add your Anthropic API key
+# Copy env and add your Gemini API key
 cp .env.example .env
 
 # Start dev server (frontend + backend)
@@ -37,7 +37,7 @@ Open **http://localhost:5173**
 
 | Variable | Description | Default |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | Your Anthropic API key | — |
+| `GEMINI_API_KEY` | Your Gemini API key | — |
 | `PORT` | Express server port | `3001` |
 | `VITE_API_MODE` | `proxy` (backend) or `direct` (user key) | `direct` |
 
@@ -57,7 +57,7 @@ Open **http://localhost:5173**
 ```
 voxail/
 ├── server/
-│   └── index.js              # Express proxy + Anthropic SDK
+│   └── index.js              # Express proxy + Gemini API
 ├── src/
 │   ├── main.jsx
 │   ├── App.jsx
@@ -86,18 +86,18 @@ voxail/
 
 | Platform | Setup |
 |---|---|
-| **Railway** | Push to GitHub → connect repo → set `ANTHROPIC_API_KEY` env var → deploy |
+| **Railway** | Push to GitHub → connect repo → set `GEMINI_API_KEY` env var → deploy |
 | **Vercel + Render** | Frontend on Vercel, backend on Render. Update CORS origins. |
 | **Static (direct mode)** | `npm run build` → deploy `dist/` to Netlify/Cloudflare/GitHub Pages |
-| **Docker** | `docker build -t voxail . && docker run -p 3001:3001 -e ANTHROPIC_API_KEY=... voxail` |
+| **Docker** | `docker build -t voxail . && docker run -p 3001:3001 -e GEMINI_API_KEY=... voxail` |
 
 See [SETUP.md](SETUP.md) for detailed instructions.
 
 ## Tech Stack
 
 - **Frontend** — React 18, Vite, Tailwind CSS, Lucide React
-- **Backend** — Express, Multer, Anthropic SDK
-- **AI** — Claude (claude-sonnet-4-20250514)
+- **Backend** — Express, Multer
+- **AI** — Gemini 2.0 Flash (free tier)
 
 ## License
 

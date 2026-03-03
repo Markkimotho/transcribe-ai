@@ -14,16 +14,17 @@ function MainApp() {
   const { apiMode, apiKey } = useContext(AppContext)
   const { transcript, status, error, loading, task, changeTask, options, setOptions, handleFile } = useTranscribe()
 
-  const needsKey = apiMode === 'direct' && !apiKey
+  const showKeySetup = apiMode === 'direct'
+  const isBlocked = apiMode === 'direct' && !apiKey
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg)' }}>
       <Header />
       <main className="flex-1 w-full max-w-2xl mx-auto px-4 py-12 flex flex-col gap-5">
-        {needsKey && <ApiKeySetup />}
+        {showKeySetup && <ApiKeySetup />}
         <Instructions />
         <TaskSelector task={task} onTaskChange={changeTask} />
-        <DropZone onFile={handleFile} disabled={loading || needsKey} />
+        <DropZone onFile={handleFile} disabled={loading || isBlocked} />
         <OptionsBar task={task} options={options} onChange={setOptions} />
         {(loading || transcript || error) && (
           <TranscriptOutput

@@ -1,7 +1,7 @@
 {
   "name": "voxail",
   "version": "1.0.0",
-  "description": "AI-powered audio transcription using Claude",
+  "description": "AI-powered audio transcription using Gemini",
   "type": "module",
   "scripts": {
     "dev": "concurrently \"vite\" \"nodemon server/index.js\"",
@@ -12,14 +12,14 @@
     "start": "node server/index.js"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.24.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "lucide-react": "^0.576.0",
     "multer": "^1.4.5-lts.1",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "react-markdown": "^10.1.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",

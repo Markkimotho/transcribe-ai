@@ -1,6 +1,6 @@
 # Voxail — Setup Guide
 
-AI-powered audio transcription using Claude. Upload an audio file and get an accurate transcript with optional speaker labels and timestamps.
+AI-powered audio transcription using Gemini. Upload an audio file and get an accurate transcript with optional speaker labels and timestamps.
 
 ---
 
@@ -8,7 +8,7 @@ AI-powered audio transcription using Claude. Upload an audio file and get an acc
 
 - **Node.js** 18+ — [Download here](https://nodejs.org)
 - **npm** (comes with Node.js)
-- **Anthropic API key** — [Get one here](https://console.anthropic.com)
+- **Gemini API key** — [Get a free one here](https://aistudio.google.com/apikey)
 
 ---
 
@@ -32,8 +32,8 @@ cp .env.example .env
 Then edit `.env`:
 
 ```env
-# Your Anthropic API key
-ANTHROPIC_API_KEY=sk-ant-your-key-here
+# Your Gemini API key
+GEMINI_API_KEY=your-gemini-api-key-here
 
 # Port for the Express backend
 PORT=3001
@@ -46,8 +46,8 @@ VITE_API_MODE=proxy
 
 | Mode | How it works | Best for |
 |------|-------------|----------|
-| **proxy** (default) | Audio goes to your Express backend, which calls Anthropic. Your API key stays secret on the server. | Production / shared deployments |
-| **direct** | Users enter their own Anthropic API key in the browser. No backend needed. | Personal use / static hosting |
+| **proxy** (default) | Audio goes to your Express backend, which calls Gemini. Your API key stays secret on the server. | Production / shared deployments |
+| **direct** | Users enter their own Gemini API key in the browser. No backend needed. | Personal use / static hosting |
 
 ---
 
@@ -90,7 +90,7 @@ Deploys both frontend + backend together. Best for proxy mode.
 
 1. Push your project to GitHub
 2. Connect the repo on [railway.app](https://railway.app)
-3. Set `ANTHROPIC_API_KEY` as an environment variable
+3. Set `GEMINI_API_KEY` as an environment variable
 4. Deploy
 
 ### Option B: Vercel + Render
@@ -106,13 +106,13 @@ Set `VITE_API_MODE=direct`, build, and deploy `dist/` to any static host:
 - [Cloudflare Pages](https://pages.cloudflare.com)
 - [GitHub Pages](https://pages.github.com)
 
-Users will need to provide their own Anthropic API key.
+Users will need to provide their own Gemini API key.
 
 ### Option D: Docker
 
 ```bash
 docker build -t voxail .
-docker run -p 3001:3001 -e ANTHROPIC_API_KEY=sk-ant-... voxail
+docker run -p 3001:3001 -e GEMINI_API_KEY=AIza... voxail
 ```
 
 ---
@@ -168,7 +168,7 @@ MP3, WAV, M4A, OGG, FLAC, MP4 — up to 25MB per file.
 
 | Issue | Solution |
 |-------|----------|
-| "Credit balance too low" | Add credits at [console.anthropic.com/settings/billing](https://console.anthropic.com/settings/billing) |
-| "ANTHROPIC_API_KEY not set" | Make sure `.env` exists with your key and restart the server |
+| "Credit balance too low" | The free tier has rate limits — wait a minute and retry, or check [aistudio.google.com](https://aistudio.google.com) |
+| "GEMINI_API_KEY not set" | Make sure `.env` exists with your key and restart the server |
 | Port already in use | Kill the process: `lsof -ti:3001 \| xargs kill -9` |
 | CORS errors in production | Update the `cors({ origin: [...] })` in `server/index.js` with your frontend URL |

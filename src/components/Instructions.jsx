@@ -15,7 +15,7 @@ const steps = [
   {
     icon: Mic,
     title: 'AI transcription',
-    description: 'Claude AI processes your audio and generates an accurate transcript. This typically takes 10–30 seconds depending on file length.',
+    description: 'Gemini AI processes your audio and generates an accurate transcript. This typically takes 10–30 seconds depending on file length.',
   },
   {
     icon: FileText,
@@ -64,7 +64,7 @@ export default function Instructions() {
           <div className="mt-4 pt-3 border-t flex items-start gap-2" style={{ borderColor: 'var(--border)' }}>
             <KeyRound size={12} className="flex-shrink-0 mt-0.5" style={{ color: 'var(--muted)' }} />
             <p className="text-[11px] leading-relaxed" style={{ color: 'var(--muted)' }}>
-              <strong>Tip:</strong> In <em>Server mode</em>, your API key is kept securely on the backend. In <em>Direct mode</em>, you provide your own Anthropic key — it's stored locally and never sent to third-party servers.
+              <strong>Tip:</strong> In <em>Server mode</em>, your API key is kept securely on the backend. In <em>Direct mode</em>, you provide your own Gemini key — it's stored locally and never sent to third-party servers.
             </p>
           </div>
         </div>

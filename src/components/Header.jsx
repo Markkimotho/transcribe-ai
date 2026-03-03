@@ -21,20 +21,21 @@ export default function Header() {
               style={{ background: 'linear-gradient(135deg,#e8ff47,#ff6b35)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
               Voxail
             </h1>
-            <button
-              onClick={toggleApiMode}
-              className="flex items-center gap-1.5 text-[10px] font-mono transition-colors hover:text-yellow-300/80 group"
-              style={{ color: 'var(--muted)' }}
-              title="Click to switch API mode"
-            >
-              {apiMode === 'proxy'
-                ? <><Server size={10} /> Server mode</>
-                : <><KeyRound size={10} /> Direct mode</>
-              }
-              <ArrowLeftRight size={8} className="opacity-0 group-hover:opacity-100 transition-opacity" />
-            </button>
           </div>
         </div>
+        <div className="flex items-center gap-2">
+        <button
+          onClick={toggleApiMode}
+          className="px-3 py-1.5 rounded-lg border text-xs font-mono flex items-center gap-2 transition-all hover:border-yellow-300/50"
+          style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
+          title="Click to switch API mode"
+        >
+          {apiMode === 'proxy'
+            ? <><Server size={13} /> Server</>
+            : <><KeyRound size={13} /> Direct</>
+          }
+          <ArrowLeftRight size={11} style={{ color: 'var(--border)' }} />
+        </button>
         <button
           onClick={toggleTheme}
           className="p-2 rounded-lg border transition-colors hover:border-yellow-300/50"
@@ -43,6 +44,7 @@ export default function Header() {
         >
           {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
         </button>
+        </div>
       </div>
     </header>
   )
