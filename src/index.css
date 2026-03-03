@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg: #fafafa;
+    --surface: #ffffff;
+    --border: #e5e7eb;
+    --text: #111111;
+    --muted: #6b7280;
+  }
+  .dark {
+    --bg: #0d0d0d;
+    --surface: #161616;
+    --border: #252525;
+    --text: #f0f0f0;
+    --muted: #555555;
+  }
+  body {
+    background-color: var(--bg);
+    color: var(--text);
+    transition: background-color 0.2s, color 0.2s;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+/* Drag-and-drop highlight */
+.drag-active {
+  border-color: #e8ff47 !important;
+  background: rgba(232, 255, 71, 0.04) !important;
+}
+
+/* Selection */
+::selection {
+  background: rgba(232, 255, 71, 0.25);
+  color: inherit;
+}
+
+/* Focus ring */
+*:focus-visible {
+  outline: 1px solid rgba(232, 255, 71, 0.5);
+  outline-offset: 2px;
+}
