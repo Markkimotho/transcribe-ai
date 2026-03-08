@@ -1,0 +1,12 @@
+version: '3.8'
+services:
+  voxail:
+    build: .
+    ports:
+      - "80:3001"
+    environment:
+      - NODE_ENV=production
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - VITE_API_MODE=${VITE_API_MODE}
+      - PORT=3001
+    restart: unless-stopped
