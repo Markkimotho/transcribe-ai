@@ -14,14 +14,14 @@ export default function OptionsBar({ task, options, onChange }) {
           onClick={() => toggle(key)}
           className="px-3 py-1.5 rounded-lg text-xs font-mono border transition-all flex items-center gap-1.5"
           style={{
-            borderColor: options[key] ? '#e8ff47' : 'var(--border)',
-            background: options[key] ? 'rgba(232,255,71,0.1)' : 'var(--surface)',
-            color: options[key] ? '#e8ff47' : 'var(--muted)',
+            borderColor: options[key] ? 'var(--accent)' : 'var(--border)',
+            background: options[key] ? 'rgba(var(--accent-rgb),0.1)' : 'var(--surface)',
+            color: options[key] ? 'var(--accent)' : 'var(--muted)',
           }}
         >
           <div
             className="w-2 h-2 rounded-full"
-            style={{ background: options[key] ? '#e8ff47' : 'var(--border)' }}
+            style={{ background: options[key] ? 'var(--accent)' : 'var(--border)' }}
           />
           {label}
         </button>

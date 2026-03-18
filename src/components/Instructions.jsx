@@ -46,12 +46,12 @@ export default function Instructions() {
             {steps.map(({ icon: Icon, title, description }, i) => (
               <div key={i} className="flex gap-3">
                 <div className="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center"
-                  style={{ background: 'rgba(232,255,71,0.08)', border: '1px solid var(--border)' }}>
-                  <Icon size={14} style={{ color: '#e8ff47' }} />
+                  style={{ background: 'rgba(var(--accent-rgb),0.08)', border: '1px solid var(--border)' }}>
+                  <Icon size={14} style={{ color: 'var(--accent)' }} />
                 </div>
                 <div>
                   <p className="text-xs font-display font-bold mb-0.5">
-                    <span className="font-mono" style={{ color: '#e8ff47' }}>{i + 1}.</span> {title}
+                    <span className="font-mono" style={{ color: 'var(--accent)' }}>{i + 1}.</span> {title}
                   </p>
                   <p className="text-[11px] leading-relaxed" style={{ color: 'var(--muted)' }}>
                     {description}

@@ -9,6 +9,9 @@
     --border: #e5e7eb;
     --text: #111111;
     --muted: #6b7280;
+    --accent: #b45309;
+    --accent-rgb: 180, 83, 9;
+    --accent-fg: #ffffff;
   }
   .dark {
     --bg: #0d0d0d;
@@ -16,6 +19,9 @@
     --border: #252525;
     --text: #f0f0f0;
     --muted: #555555;
+    --accent: #e8ff47;
+    --accent-rgb: 232, 255, 71;
+    --accent-fg: #000000;
   }
   body {
     background-color: var(--bg);
@@ -34,18 +40,18 @@
 
 /* Drag-and-drop highlight */
 .drag-active {
-  border-color: #e8ff47 !important;
-  background: rgba(232, 255, 71, 0.04) !important;
+  border-color: var(--accent) !important;
+  background: rgba(var(--accent-rgb), 0.04) !important;
 }
 
 /* Selection */
 ::selection {
-  background: rgba(232, 255, 71, 0.25);
+  background: rgba(var(--accent-rgb), 0.25);
   color: inherit;
 }
 
 /* Focus ring */
 *:focus-visible {
-  outline: 1px solid rgba(232, 255, 71, 0.5);
+  outline: 1px solid rgba(var(--accent-rgb), 0.5);
   outline-offset: 2px;
 }

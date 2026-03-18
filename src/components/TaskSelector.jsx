@@ -44,15 +44,15 @@ export default function TaskSelector({ task, onTaskChange }) {
         className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border transition-all"
         style={{
           background: 'var(--surface)',
-          borderColor: open ? '#e8ff47' : 'var(--border)',
+          borderColor: open ? 'var(--accent)' : 'var(--border)',
           color: 'var(--fg)',
         }}
       >
         <div
           className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-          style={{ background: 'rgba(232,255,71,0.12)' }}
+          style={{ background: 'rgba(var(--accent-rgb),0.12)' }}
         >
-          <CurrentIcon size={16} style={{ color: '#e8ff47' }} />
+          <CurrentIcon size={16} style={{ color: 'var(--accent)' }} />
         </div>
         <div className="flex-1 text-left">
           <div className="text-sm font-semibold">{current.label}</div>
@@ -99,18 +99,18 @@ export default function TaskSelector({ task, onTaskChange }) {
                         onClick={() => { onTaskChange(id); setOpen(false) }}
                         className="w-full flex items-center gap-3 px-4 py-2.5 transition-all text-left"
                         style={{
-                          background: isActive ? 'rgba(232,255,71,0.08)' : 'transparent',
-                          color: isActive ? '#e8ff47' : 'var(--fg)',
+                          background: isActive ? 'rgba(var(--accent-rgb),0.08)' : 'transparent',
+                          color: isActive ? 'var(--accent)' : 'var(--fg)',
                         }}
                         onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'rgba(255,255,255,0.04)' }}
                         onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent' }}
                       >
-                        <Icon size={14} style={{ color: isActive ? '#e8ff47' : 'var(--muted)', flexShrink: 0 }} />
+                        <Icon size={14} style={{ color: isActive ? 'var(--accent)' : 'var(--muted)', flexShrink: 0 }} />
                         <div className="flex-1 min-w-0">
                           <div className="text-sm font-medium truncate">{label}</div>
                           <div className="text-[11px] truncate" style={{ color: 'var(--muted)' }}>{description}</div>
                         </div>
-                        {isActive && <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: '#e8ff47' }} />}
+                        {isActive && <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: 'var(--accent)' }} />}
                       </button>
                     )
                   })}

@@ -25,7 +25,7 @@ export default function TranscriptOutput({ transcript, status, error, loading })
     <div className="rounded-lg border overflow-hidden" style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: 'var(--border)' }}>
-        <span className="text-xs font-display font-bold uppercase tracking-widest flex items-center gap-2" style={{ color: '#e8ff47' }}>
+        <span className="text-xs font-display font-bold uppercase tracking-widest flex items-center gap-2" style={{ color: 'var(--accent)' }}>
           <FileText size={13} />
           Transcript
         </span>
@@ -49,7 +49,7 @@ export default function TranscriptOutput({ transcript, status, error, loading })
       <div className="p-5 min-h-[120px]">
         {loading && (
           <div className="flex items-center gap-3 text-xs font-mono" style={{ color: 'var(--muted)' }}>
-            <Loader2 size={14} className="animate-spin" style={{ color: '#e8ff47' }} />
+            <Loader2 size={14} className="animate-spin" style={{ color: 'var(--accent)' }} />
             {status}
           </div>
         )}
@@ -63,9 +63,9 @@ export default function TranscriptOutput({ transcript, status, error, loading })
           <div className="prose-output text-sm leading-relaxed font-sans" style={{ color: 'var(--text)' }}>
             <ReactMarkdown
               components={{
-                h1: ({ children }) => <h1 className="text-xl font-display font-bold mt-4 mb-2" style={{ color: '#e8ff47' }}>{children}</h1>,
-                h2: ({ children }) => <h2 className="text-lg font-display font-bold mt-4 mb-2" style={{ color: '#e8ff47' }}>{children}</h2>,
-                h3: ({ children }) => <h3 className="text-base font-display font-semibold mt-3 mb-1.5" style={{ color: '#e8ff47' }}>{children}</h3>,
+                h1: ({ children }) => <h1 className="text-xl font-display font-bold mt-4 mb-2" style={{ color: 'var(--accent)' }}>{children}</h1>,
+                h2: ({ children }) => <h2 className="text-lg font-display font-bold mt-4 mb-2" style={{ color: 'var(--accent)' }}>{children}</h2>,
+                h3: ({ children }) => <h3 className="text-base font-display font-semibold mt-3 mb-1.5" style={{ color: 'var(--accent)' }}>{children}</h3>,
                 h4: ({ children }) => <h4 className="text-sm font-display font-semibold mt-2 mb-1" style={{ color: 'var(--text)' }}>{children}</h4>,
                 p: ({ children }) => <p className="mb-3 leading-relaxed">{children}</p>,
                 ul: ({ children }) => <ul className="mb-3 pl-5 list-disc space-y-1">{children}</ul>,
@@ -74,13 +74,13 @@ export default function TranscriptOutput({ transcript, status, error, loading })
                 strong: ({ children }) => <strong className="font-bold" style={{ color: 'var(--text)' }}>{children}</strong>,
                 em: ({ children }) => <em className="italic" style={{ color: 'var(--muted)' }}>{children}</em>,
                 blockquote: ({ children }) => (
-                  <blockquote className="border-l-2 pl-4 my-3 italic" style={{ borderColor: '#e8ff47', color: 'var(--muted)' }}>
+                  <blockquote className="border-l-2 pl-4 my-3 italic" style={{ borderColor: 'var(--accent)', color: 'var(--muted)' }}>
                     {children}
                   </blockquote>
                 ),
                 code: ({ inline, children }) =>
                   inline
-                    ? <code className="px-1.5 py-0.5 rounded text-xs font-mono" style={{ background: 'var(--bg)', color: '#e8ff47' }}>{children}</code>
+                    ? <code className="px-1.5 py-0.5 rounded text-xs font-mono" style={{ background: 'var(--bg)', color: 'var(--accent)' }}>{children}</code>
                     : <pre className="p-3 rounded-lg my-3 overflow-x-auto text-xs font-mono" style={{ background: 'var(--bg)' }}><code>{children}</code></pre>,
                 hr: () => <hr className="my-4 border-t" style={{ borderColor: 'var(--border)' }} />,
                 table: ({ children }) => (
@@ -89,7 +89,7 @@ export default function TranscriptOutput({ transcript, status, error, loading })
                   </div>
                 ),
                 thead: ({ children }) => <thead style={{ borderBottom: '1px solid var(--border)' }}>{children}</thead>,
-                th: ({ children }) => <th className="text-left px-3 py-2 font-display font-bold text-xs uppercase tracking-wider" style={{ color: '#e8ff47' }}>{children}</th>,
+                th: ({ children }) => <th className="text-left px-3 py-2 font-display font-bold text-xs uppercase tracking-wider" style={{ color: 'var(--accent)' }}>{children}</th>,
                 td: ({ children }) => <td className="px-3 py-2 border-t text-xs" style={{ borderColor: 'var(--border)' }}>{children}</td>,
               }}
             >
