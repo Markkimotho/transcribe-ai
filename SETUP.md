@@ -1,119 +1,130 @@
 # Voxail — Setup Guide
 
-AI-powered audio transcription using Gemini. Upload an audio file and get an accurate transcript with optional speaker labels and timestamps.
+Audio transcription powered by **Whisper** (local speech-to-text) with **Gemini**
+handling the language tasks (summary, sentiment, chapters, translation, meeting/
+medical/legal formatting, etc.) over the Whisper transcript.
+
+- **Whisper** does all speech-to-text. Two interchangeable backends:
+  `faster-whisper` (default, pure Python) or `whisper.cpp` (Metal on Apple Silicon).
+- **Gemini** never sees audio. It only post-processes the Whisper transcript for
+  the task features. Plain transcription and live transcription never call Gemini.
+
+---
+
+## Architecture
+
+```
+audio ─▶ Node/Express (server/) ─▶ Whisper STT service (services/whisper, :8011)
+                     │                         └─ faster-whisper | whisper.cpp
+                     ▼
+             task == transcription? ── yes ─▶ return Whisper transcript
+                     │ no
+                     ▼
+             Gemini over transcript text ─▶ return task output
+```
 
 ---
 
 ## Prerequisites
 
-- **Node.js** 18+ — [Download here](https://nodejs.org)
-- **npm** (comes with Node.js)
-- **Gemini API key** — [Get a free one here](https://aistudio.google.com/apikey)
+- **Node.js** 18+ — [nodejs.org](https://nodejs.org)
+- **Python** 3.11+ (for the Whisper service)
+- **ffmpeg** — `brew install ffmpeg` (audio decoding)
+- **Gemini API key** — only needed for the task features. [Get one free](https://aistudio.google.com/apikey). Plain transcription works with no key.
+- For the `whisper.cpp` backend: **cmake** — `brew install cmake`
 
 ---
 
-## 1. Install dependencies
+## 1. Install the Whisper STT service
 
 ```bash
-cd voxail
+# faster-whisper backend (default). Downloads the model on first run.
+services/whisper/setup.sh
+
+# Also build the whisper.cpp backend (optional):
+BUILD_WHISPER_CPP=1 services/whisper/setup.sh
+```
+
+Pick a model with `WHISPER_MODEL` (default `base`): `tiny` | `base` | `small` |
+`medium` | `large-v3`. Bigger = more accurate, slower, larger download.
+
+## 2. Install the Node app
+
+```bash
 npm install
 ```
 
----
-
-## 2. Configure environment
-
-Copy the example env file and add your API key:
+## 3. Configure environment
 
 ```bash
 cp .env.example .env
 ```
 
-Then edit `.env`:
+Key settings (see `.env.example` for all):
 
 ```env
-# Your Gemini API key
-GEMINI_API_KEY=your-gemini-api-key-here
-
-# Port for the Express backend
-PORT=3001
-
-# API mode: "proxy" (recommended) or "direct"
-VITE_API_MODE=proxy
+WHISPER_URL=http://localhost:8011   # where the Whisper service listens
+WHISPER_BACKEND=faster-whisper      # or whisper.cpp
+WHISPER_MODEL=base
+GEMINI_API_KEY=your-key-here        # tasks only; omit for transcription-only
+VITE_API_MODE=proxy                 # proxy | direct
 ```
 
 ### API Modes
 
 | Mode | How it works | Best for |
 |------|-------------|----------|
-| **proxy** (default) | Audio goes to your Express backend, which calls Gemini. Your API key stays secret on the server. | Production / shared deployments |
-| **direct** | Users enter their own Gemini API key in the browser. No backend needed. | Personal use / static hosting |
+| **proxy** (default) | Audio → your backend → Whisper (local) + Gemini (server key). | Production / shared |
+| **direct** | Whisper still runs on the server; the user's Gemini key is used only for tasks. | Personal use |
 
 ---
 
-## 3. Run the dev server
+## 4. Run
 
 ```bash
 npm run dev
 ```
 
-This starts both servers simultaneously:
-- **Vite** (frontend) → `http://localhost:5173`
-- **Express** (backend) → `http://localhost:3001`
+Starts all three at once:
+- **Whisper STT** → `http://localhost:8011`
+- **Express backend** → `http://localhost:3001`
+- **Vite frontend** → `http://localhost:5173`
 
-Open `http://localhost:5173` in your browser.
-
-### Run individually
+Individually:
 
 ```bash
-npm run dev:frontend   # Vite only (port 5173)
-npm run dev:server     # Express only (port 3001)
+npm run dev:whisper    # Whisper STT service
+npm run dev:server     # Express only
+npm run dev:frontend   # Vite only
 ```
 
 ---
 
-## 4. Build for production
+## 5. Tests & evals
+
+```bash
+npm test               # Node pipeline gate tests (routing) — fast, free
+npm run test:whisper   # Python service gate tests — fast, free
+npm run test:all       # both
+npm run eval:whisper   # real Whisper accuracy eval (WER threshold) — slow
+```
+
+Switch the eval to the other backend:
+
+```bash
+WHISPER_BACKEND=whisper.cpp npm run eval:whisper
+```
+
+---
+
+## 6. Build for production
 
 ```bash
 npm run build
 ```
 
-This generates a `dist/` folder with optimized static files.
-
----
-
-## 5. Deployment
-
-### Option A: Railway (recommended)
-
-Deploys both frontend + backend together. Best for proxy mode.
-
-1. Push your project to GitHub
-2. Connect the repo on [railway.app](https://railway.app)
-3. Set `GEMINI_API_KEY` as an environment variable
-4. Deploy
-
-### Option B: Vercel + Render
-
-- Deploy `dist/` (frontend) to [Vercel](https://vercel.com)
-- Deploy `server/` (backend) to [Render](https://render.com)
-- Update CORS origins in `server/index.js` to your Vercel URL
-
-### Option C: Static hosting (Direct mode only)
-
-Set `VITE_API_MODE=direct`, build, and deploy `dist/` to any static host:
-- [Netlify](https://netlify.com)
-- [Cloudflare Pages](https://pages.cloudflare.com)
-- [GitHub Pages](https://pages.github.com)
-
-Users will need to provide their own Gemini API key.
-
-### Option D: Docker
-
-```bash
-docker build -t voxail .
-docker run -p 3001:3001 -e GEMINI_API_KEY=AIza... voxail
-```
+The Whisper service runs as its own process — start it alongside the Node server
+(`services/whisper/run.sh`) in production.
 
 ---
 
@@ -121,46 +132,30 @@ docker run -p 3001:3001 -e GEMINI_API_KEY=AIza... voxail
 
 ```
 voxail/
-├── package.json
-├── vite.config.js
-├── tailwind.config.js
-├── postcss.config.js
-├── index.html
-├── .env.example
-├── .gitignore
-│
 ├── server/
-│   └── index.js           # Express proxy backend
+│   ├── index.js          # Express: pipeline orchestration
+│   ├── pipeline.js       # pure Whisper↔Gemini routing (unit-tested)
+│   ├── pipeline.test.js  # gate tests
+│   ├── whisperClient.js  # calls the Whisper STT service
+│   └── gemini.js         # Gemini text-processing (transcript in, task out)
 │
-└── src/
-    ├── main.jsx
-    ├── App.jsx
-    ├── index.css
-    │
-    ├── context/
-    │   └── AppContext.jsx   # Global state: theme, API mode, key
-    │
-    ├── hooks/
-    │   └── useTranscribe.js # Transcription logic
-    │
-    ├── utils/
-    │   └── transcribeApi.js # Proxy vs direct API calls
-    │
-    └── components/
-        ├── Header.jsx
-        ├── ApiKeySetup.jsx
-        ├── Instructions.jsx
-        ├── DropZone.jsx
-        ├── OptionsBar.jsx
-        ├── TranscriptOutput.jsx
-        └── Footer.jsx
+├── services/whisper/     # self-contained Whisper STT service
+│   ├── app.py            # FastAPI (contract.md)
+│   ├── config.py
+│   ├── backends/         # faster_whisper + whisper_cpp
+│   ├── tests/            # gate tests (fake backend)
+│   ├── evals/            # real accuracy eval
+│   ├── setup.sh / run.sh
+│   └── contract.md
+│
+└── src/                  # React frontend (unchanged tabs/tasks)
 ```
 
 ---
 
 ## Supported Formats
 
-MP3, WAV, M4A, OGG, FLAC, MP4 — up to 25MB per file.
+Anything ffmpeg can decode: MP3, WAV, M4A, OGG, FLAC, MP4 — up to 25MB.
 
 ---
 
@@ -168,7 +163,9 @@ MP3, WAV, M4A, OGG, FLAC, MP4 — up to 25MB per file.
 
 | Issue | Solution |
 |-------|----------|
-| "Credit balance too low" | The free tier has rate limits — wait a minute and retry, or check [aistudio.google.com](https://aistudio.google.com) |
-| "GEMINI_API_KEY not set" | Make sure `.env` exists with your key and restart the server |
-| Port already in use | Kill the process: `lsof -ti:3001 \| xargs kill -9` |
-| CORS errors in production | Update the `cors({ origin: [...] })` in `server/index.js` with your frontend URL |
+| Health shows `whisper.reachable: false` | Start the Whisper service: `npm run dev:whisper`. Check `WHISPER_URL`. |
+| Task features fail, transcription works | Missing/invalid `GEMINI_API_KEY`. Tasks need Gemini; plain transcription does not. |
+| `whisper.cpp binary not found` | Run `BUILD_WHISPER_CPP=1 services/whisper/setup.sh` (needs cmake). |
+| First transcription is slow | The Whisper model loads lazily on the first request, then stays warm. |
+| Port 8011 in use | Set `WHISPER_PORT` (service) and `WHISPER_URL` (server) to a free port. |
+| `require()` hangs / venv vanished on macOS | Project is on iCloud Drive — it evicts files. Keep `node_modules` and `.venv` downloaded (System Settings → Apple Account → iCloud → "Keep Downloaded"), or move the project off iCloud. |

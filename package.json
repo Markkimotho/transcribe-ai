@@ -4,12 +4,17 @@
   "description": "AI-powered audio transcription using Gemini",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"vite\" \"nodemon server/index.js\"",
+    "dev": "concurrently -n whisper,server,web -c magenta,cyan,green \"npm:dev:whisper\" \"npm:dev:server\" \"npm:dev:frontend\"",
     "dev:frontend": "vite",
     "dev:server": "nodemon server/index.js",
+    "dev:whisper": "bash services/whisper/run.sh",
     "build": "vite build",
     "preview": "vite preview",
-    "start": "node server/index.js"
+    "start": "node server/index.js",
+    "test": "node --test server/*.test.js",
+    "test:whisper": "services/whisper/.venv/bin/python -m pytest services/whisper/tests -q",
+    "test:all": "npm test && npm run test:whisper",
+    "eval:whisper": "services/whisper/.venv/bin/python -m services.whisper.evals.eval_transcription"
   },
   "dependencies": {
     "cors": "^2.8.5",
