@@ -1,0 +1,70 @@
+// Gate tests for the Whisper↔Gemini routing. Pure, deterministic, free.
+// Run: node --test server/
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import {
+  needsGemini, formatTimestamp, renderPlainTranscript,
+  buildTranscriptContext, TIMING_TASKS,
+} from './pipeline.js'
+
+const whisper = {
+  text: 'hello world this is a test',
+  language: 'en',
+  duration: 6.0,
+  segments: [
+    { start: 0.0, end: 2.5, text: 'hello world' },
+    { start: 2.5, end: 6.0, text: 'this is a test' },
+  ],
+}
+
+test('plain transcription does NOT call Gemini', () => {
+  assert.equal(needsGemini('transcription', {}), false)
+  assert.equal(needsGemini('transcription', { timestamps: true }), false)
+})
+
+test('transcription with speaker labels or polish DOES call Gemini', () => {
+  assert.equal(needsGemini('transcription', { speakerLabels: true }), true)
+  assert.equal(needsGemini('transcription', { polish: true }), true)
+})
+
+test('every non-transcription task calls Gemini', () => {
+  for (const t of ['summary', 'sentiment', 'chapters', 'translation', 'subtitles',
+    'captions', 'diarization', 'meeting', 'medical', 'legal', 'lyrics', 'voicemail',
+    'multilingual', 'interview']) {
+    assert.equal(needsGemini(t, {}), true, `${t} should need Gemini`)
+  }
+})
+
+test('formatTimestamp renders HH:MM:SS.mmm', () => {
+  assert.equal(formatTimestamp(0), '00:00:00.000')
+  assert.equal(formatTimestamp(2.5), '00:00:02.500')
+  assert.equal(formatTimestamp(3661.234), '01:01:01.234')
+  assert.equal(formatTimestamp(-5), '00:00:00.000')
+})
+
+test('renderPlainTranscript returns raw text without timestamps option', () => {
+  assert.equal(renderPlainTranscript(whisper, {}), 'hello world this is a test')
+})
+
+test('renderPlainTranscript injects [mm:ss] when timestamps enabled', () => {
+  const out = renderPlainTranscript(whisper, { timestamps: true })
+  assert.equal(out, '[00:00] hello world\n[00:02] this is a test')
+})
+
+test('renderPlainTranscript handles no speech', () => {
+  assert.equal(renderPlainTranscript({ text: '', segments: [] }, {}), '[No speech detected]')
+})
+
+test('buildTranscriptContext uses plain text for non-timing tasks', () => {
+  const ctx = buildTranscriptContext('summary', whisper)
+  assert.match(ctx, /detected language: en/)
+  assert.match(ctx, /TRANSCRIPT:\nhello world this is a test/)
+  assert.doesNotMatch(ctx, /-->/) // no segment timestamps
+})
+
+test('buildTranscriptContext includes segment timestamps for timing tasks', () => {
+  assert.ok(TIMING_TASKS.has('subtitles'))
+  const ctx = buildTranscriptContext('subtitles', whisper)
+  assert.match(ctx, /\[00:00:00\.000 --> 00:00:02\.500\] hello world/)
+  assert.match(ctx, /\[00:00:02\.500 --> 00:00:06\.000\] this is a test/)
+})

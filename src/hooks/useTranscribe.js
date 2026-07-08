@@ -28,12 +28,12 @@ export function useTranscribe() {
       const prompt = buildPrompt(task, options)
       let result
       if (apiMode === 'proxy') {
-        setStatus('Sending to server...')
-        result = await transcribeViaProxy(file, prompt)
+        setStatus('Transcribing with Whisper...')
+        result = await transcribeViaProxy(file, { prompt, task, options })
       } else {
         if (!apiKey) throw new Error('Please enter your Gemini API key above.')
-        setStatus('Sending to Gemini AI...')
-        result = await transcribeDirect(file, prompt, apiKey)
+        setStatus('Transcribing with Whisper...')
+        result = await transcribeDirect(file, { prompt, task, options, apiKey })
       }
       setTranscript(result)
       setStatus('Done!')

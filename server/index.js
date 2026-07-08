@@ -2,9 +2,13 @@ import express from 'express'
 import cors from 'cors'
 import multer from 'multer'
 import dotenv from 'dotenv'
-import { readFileSync, unlinkSync, existsSync, mkdirSync } from 'fs'
+import { unlinkSync, existsSync, mkdirSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
+
+import { transcribeAudio, whisperHealth } from './whisperClient.js'
+import { runGeminiOnText } from './gemini.js'
+import { needsGemini, renderPlainTranscript, buildTranscriptContext } from './pipeline.js'
 
 dotenv.config()
 
@@ -29,137 +33,100 @@ const upload = multer({
     } else {
       cb(new Error('Only audio and video files are supported.'))
     }
-  }
+  },
 })
+
+// Parse the optional options JSON blob the frontend sends.
+function parseOptions(raw) {
+  if (!raw) return {}
+  try { return JSON.parse(raw) } catch { return {} }
+}
+
+// ── Shared pipeline: Whisper STT → (optionally) Gemini over text ──
+// `apiKey` is the Gemini key to use (server key in proxy mode, user key in direct mode).
+async function runPipeline({ filePath, mimeType, task, options, prompt, language, geminiKey }) {
+  // Stage 1 — Whisper always transcribes the audio.
+  const whisper = await transcribeAudio(filePath, mimeType, { language, task: 'transcribe' })
+
+  // Stage 2 — pure transcription returns Whisper directly; tasks go to Gemini.
+  if (!needsGemini(task, options)) {
+    return renderPlainTranscript(whisper, options)
+  }
+
+  if (!geminiKey) {
+    throw new Error('This task needs Gemini for post-processing, but no Gemini key is configured.')
+  }
+  if (!prompt) throw new Error('No task prompt provided.')
+
+  const context = buildTranscriptContext(task, whisper)
+  return runGeminiOnText(prompt, context, geminiKey)
+}
 
 // ── Health check ─────────────────────────────────────────────
-app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, mode: 'proxy', keyConfigured: !!process.env.GEMINI_API_KEY })
+app.get('/api/health', async (_req, res) => {
+  const whisper = await whisperHealth()
+  res.json({
+    ok: true,
+    mode: 'whisper+gemini',
+    whisper: { reachable: !!whisper.backend, backend: whisper.backend || null, model: whisper.model || null },
+    geminiKeyConfigured: !!process.env.GEMINI_API_KEY,
+  })
 })
 
-// ── Transcribe ───────────────────────────────────────────────
+// ── Proxy mode (server's Gemini key) ─────────────────────────
 app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
   const filePath = req.file?.path
   try {
     if (!req.file) return res.status(400).json({ error: 'No audio file provided.' })
 
-    const apiKey = process.env.GEMINI_API_KEY
-    if (!apiKey) return res.status(500).json({
-      error: 'Server not configured — add GEMINI_API_KEY to .env'
+    const task = req.body.task || 'transcription'
+    const options = parseOptions(req.body.options)
+    const transcript = await runPipeline({
+      filePath,
+      mimeType: req.file.mimetype,
+      task,
+      options,
+      prompt: req.body.prompt,
+      language: req.body.language || '',
+      geminiKey: process.env.GEMINI_API_KEY,
     })
-
-    const prompt = req.body.prompt
-    if (!prompt) return res.status(400).json({ error: 'No prompt provided.' })
-
-    const base64Audio = readFileSync(filePath).toString('base64')
-    const mimeType = req.file.mimetype || 'audio/mpeg'
-    const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
-
-    const payload = JSON.stringify({
-      contents: [{
-        parts: [
-          { text: prompt },
-          { inline_data: { mime_type: mimeType, data: base64Audio } }
-        ]
-      }],
-      generationConfig: { maxOutputTokens: 16384 }
-    })
-
-    // Retry up to 3 times with backoff for rate limits
-    let lastError
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const geminiRes = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload }
-      )
-
-      const data = await geminiRes.json()
-
-      if (geminiRes.status === 429) {
-        const wait = (attempt + 1) * 15_000 // 15s, 30s, 45s
-        console.log(`[Rate limited] Retrying in ${wait / 1000}s (attempt ${attempt + 1}/3)`)
-        await new Promise(r => setTimeout(r, wait))
-        lastError = data?.error?.message || 'Rate limited'
-        continue
-      }
-
-      if (!geminiRes.ok) throw new Error(data?.error?.message || `Gemini API error ${geminiRes.status}`)
-
-      const transcript = data.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('').trim()
-      if (!transcript) throw new Error('No text returned from Gemini')
-      return res.json({ transcript })
-    }
-    throw new Error(`Rate limited after 3 retries: ${lastError}`)
-
+    return res.json({ transcript })
   } catch (err) {
     console.error('[Transcription error]', err)
     res.status(500).json({ error: err.message || 'Transcription failed.' })
   } finally {
     if (filePath && existsSync(filePath)) {
-      try { unlinkSync(filePath) } catch (_) {}
+      try { unlinkSync(filePath) } catch { /* ignore */ }
     }
   }
 })
 
-// ── Direct-mode relay (user supplies their own key) ──────────
-// Bypasses browser CORS restrictions by relaying through the server.
-// The user's key is used per-request and never stored.
+// ── Direct mode (user supplies their own Gemini key) ─────────
+// Whisper still runs locally on the server; the user's key is used only
+// for the Gemini post-processing step and is never stored.
 app.post('/api/transcribe-direct', upload.single('audio'), async (req, res) => {
   const filePath = req.file?.path
   try {
     if (!req.file) return res.status(400).json({ error: 'No audio file provided.' })
 
-    const userKey = req.body.apiKey
-    if (!userKey) return res.status(400).json({ error: 'No API key provided.' })
-
-    const prompt = req.body.prompt
-    if (!prompt) return res.status(400).json({ error: 'No prompt provided.' })
-
-    const base64Audio = readFileSync(filePath).toString('base64')
-    const mimeType = req.file.mimetype || 'audio/mpeg'
-    const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
-
-    const payload = JSON.stringify({
-      contents: [{
-        parts: [
-          { text: prompt },
-          { inline_data: { mime_type: mimeType, data: base64Audio } }
-        ]
-      }],
-      generationConfig: { maxOutputTokens: 16384 }
+    const task = req.body.task || 'transcription'
+    const options = parseOptions(req.body.options)
+    const transcript = await runPipeline({
+      filePath,
+      mimeType: req.file.mimetype,
+      task,
+      options,
+      prompt: req.body.prompt,
+      language: req.body.language || '',
+      geminiKey: req.body.apiKey,
     })
-
-    let lastError
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const geminiRes = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userKey}`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload }
-      )
-
-      const data = await geminiRes.json()
-
-      if (geminiRes.status === 429) {
-        const wait = (attempt + 1) * 15_000
-        console.log(`[Direct relay — rate limited] Retrying in ${wait / 1000}s`)
-        await new Promise(r => setTimeout(r, wait))
-        lastError = data?.error?.message || 'Rate limited'
-        continue
-      }
-
-      if (!geminiRes.ok) throw new Error(data?.error?.message || `Gemini API error ${geminiRes.status}`)
-
-      const transcript = data.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('').trim()
-      if (!transcript) throw new Error('No text returned from Gemini')
-      return res.json({ transcript })
-    }
-    throw new Error(`Rate limited after 3 retries: ${lastError}`)
-
+    return res.json({ transcript })
   } catch (err) {
-    console.error('[Direct relay error]', err)
+    console.error('[Direct pipeline error]', err)
     res.status(500).json({ error: err.message || 'Transcription failed.' })
   } finally {
     if (filePath && existsSync(filePath)) {
-      try { unlinkSync(filePath) } catch (_) {}
+      try { unlinkSync(filePath) } catch { /* ignore */ }
     }
   }
 })
@@ -170,7 +137,9 @@ app.get('*', (_req, res) => {
   res.sendFile(join(__dirname, '../dist/index.html'))
 })
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`\n🎙  Voxail server → http://localhost:${PORT}`)
-  console.log(`   API key: ${process.env.GEMINI_API_KEY ? '✅ set' : '❌ NOT SET'}`)
+  const w = await whisperHealth()
+  console.log(`   Whisper STT: ${w.backend ? `✅ ${w.backend} (${w.model})` : '❌ not reachable — start services/whisper'}`)
+  console.log(`   Gemini key (tasks): ${process.env.GEMINI_API_KEY ? '✅ set' : '❌ NOT SET (task features disabled)'}`)
 })

@@ -1,8 +1,5 @@
-import { useState, useRef, useContext, useCallback } from 'react'
-import { AppContext } from '../context/AppContext'
-import { transcribeViaProxy, transcribeDirect } from '../utils/transcribeApi'
-
-const LIVE_PROMPT = `You are a real-time transcription engine processing a short audio segment (approximately 5 seconds) captured from a live microphone. Transcribe every audible word exactly as spoken with natural punctuation. If the segment contains no speech, return exactly: [silence]. Return only the transcription text, no preamble, no commentary, no markdown.`
+import { useState, useRef, useCallback } from 'react'
+import { transcribeViaProxy } from '../utils/transcribeApi'
 
 const CHUNK_MS = 5000
 const MIN_CHUNK_BYTES = 3000
@@ -21,7 +18,6 @@ function detectMimeType() {
 }
 
 export function useLiveTranscribe() {
-  const { apiMode, apiKey } = useContext(AppContext)
   const [isRecording, setIsRecording] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
   const [segments, setSegments] = useState([])
@@ -34,11 +30,6 @@ export function useLiveTranscribe() {
   const apiQueueRef = useRef([])        // assembled chunks waiting for an API call slot
   const apiActiveRef = useRef(false)    // true while an API call is in-flight
   const mimeTypeRef = useRef('audio/webm')
-  // Keep stable refs to apiMode/apiKey so the queue processor always uses current values
-  const apiModeRef = useRef(apiMode)
-  const apiKeyRef = useRef(apiKey)
-  apiModeRef.current = apiMode
-  apiKeyRef.current = apiKey
 
   // Process the next chunk in the serial queue — called after each API call finishes
   const processNext = useCallback(() => {
@@ -58,11 +49,8 @@ export function useLiveTranscribe() {
 
     const file = new File([chunk], 'live-chunk.webm', { type: mimeTypeRef.current })
 
-    const call = apiModeRef.current === 'proxy'
-      ? transcribeViaProxy(file, LIVE_PROMPT)
-      : apiKeyRef.current
-        ? transcribeDirect(file, LIVE_PROMPT, apiKeyRef.current)
-        : Promise.reject(new Error('No API key set.'))
+    // Live is pure speech-to-text → Whisper only, no Gemini, no API key needed.
+    const call = transcribeViaProxy(file, { task: 'transcription' })
 
     call
       .then(text => {
