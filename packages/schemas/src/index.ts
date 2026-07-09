@@ -124,6 +124,7 @@ export const Job = z.object({
   error: z.string().nullable(),
   attempts: z.number().int(),
   progress: z.number().min(0).max(100),
+  processingMeta: z.record(z.unknown()).default({}),
   webhookUrl: z.string().url().nullable(),
   createdAt: z.string(),
   startedAt: z.string().nullable(),

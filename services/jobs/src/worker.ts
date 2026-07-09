@@ -39,11 +39,25 @@ export async function processJob(jobId: string, pool: pg.Pool = getPool()): Prom
     await pool.query(`UPDATE jobs SET progress = 20 WHERE id = $1`, [jobId])
 
     // 2. Whisper STT
+    const sttStartedAt = performance.now()
     const whisper = await whisperTranscribe(
       audio, blobRow.storage_key.split('/').pop() || 'audio.bin', blobRow.mime_type,
       { language: input.language },
     )
-    await pool.query(`UPDATE jobs SET progress = 70 WHERE id = $1`, [jobId])
+    const runtimeSec = (performance.now() - sttStartedAt) / 1000
+    const processingMeta = {
+      backend: whisper.backend,
+      model: whisper.model,
+      language: whisper.language,
+      durationSec: whisper.duration,
+      runtimeSec: Number(runtimeSec.toFixed(3)),
+      realtimeFactor: Number((runtimeSec / Math.max(whisper.duration, 0.001)).toFixed(3)),
+      device: process.env.WHISPER_DEVICE || 'auto',
+    }
+    await pool.query(
+      `UPDATE jobs SET progress = 70, processing_meta = processing_meta || $2::jsonb WHERE id = $1`,
+      [jobId, JSON.stringify(processingMeta)],
+    )
 
     // 3. Route: plain Whisper or LLM task
     let text: string
@@ -71,6 +85,10 @@ export async function processJob(jobId: string, pool: pg.Pool = getPool()): Prom
       result,
       audioBlobId: input.audioBlobId,
     }, pool)
+    await pool.query(
+      `UPDATE transcripts SET processing_meta = $2::jsonb WHERE id = $1`,
+      [transcript.id, JSON.stringify(processingMeta)],
+    )
 
     const done = await markJob(jobId, 'running', 'succeeded',
       { transcript_id: transcript.id, progress: 100 }, pool)

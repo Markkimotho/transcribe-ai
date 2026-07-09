@@ -24,7 +24,10 @@ import {
 } from '../../transcripts/src/index.ts'
 import { enqueueTranscribeJob, getJob } from '../../jobs/src/index.ts'
 import { assertBotTransition, detectMeetingProvider } from '../../meeting-bot/src/index.ts'
-import { whisperHealth, whisperTranscribe } from '../../whisper/client/index.ts'
+import {
+  whisperHealth, whisperTranscribe, whisperModels, whisperDownloadModel,
+  whisperActivateModel, whisperDeleteModel,
+} from '../../whisper/client/index.ts'
 import { needsLlm, renderPlainTranscript, buildTranscriptContext } from '../../pipeline/src/index.ts'
 import { getLlm } from '../../llm/src/index.ts'
 import { GeminiAdapter } from '../../llm/src/adapters/gemini.ts'
@@ -97,6 +100,42 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
 
   app.get('/api/me', requireAuth(), rateLimit(), async (req, res) => {
     res.json({ principal: req.principal })
+  })
+
+  // ── Local STT model control plane ──────────────────────────
+  app.get('/api/admin/stt', requireAuth(), rateLimit(), async (req, res, next) => {
+    try {
+      if (!['owner', 'admin'].includes(req.principal!.role)) return res.status(403).json({ error: 'Admin access required' })
+      const runtime = await whisperModels()
+      res.json({
+        ...runtime,
+        queue: {
+          workerSlots: Math.max(1, Number(process.env.WORKER_CONCURRENCY || 1)),
+          maxQueuedJobs: Math.max(1, Number(process.env.MAX_QUEUED_JOBS || 100)),
+        },
+      })
+    } catch (e) { next(e) }
+  })
+
+  app.post('/api/admin/stt/models/download', requireAuth(), rateLimit(), async (req, res, next) => {
+    try {
+      if (!['owner', 'admin'].includes(req.principal!.role)) return res.status(403).json({ error: 'Admin access required' })
+      res.json(await whisperDownloadModel(String(req.body?.backend || ''), String(req.body?.model || '')))
+    } catch (e) { next(e) }
+  })
+
+  app.post('/api/admin/stt/models/activate', requireAuth(), rateLimit(), async (req, res, next) => {
+    try {
+      if (!['owner', 'admin'].includes(req.principal!.role)) return res.status(403).json({ error: 'Admin access required' })
+      res.json(await whisperActivateModel(String(req.body?.backend || ''), String(req.body?.model || '')))
+    } catch (e) { next(e) }
+  })
+
+  app.delete('/api/admin/stt/models/:backend/:model', requireAuth(), rateLimit(), async (req, res, next) => {
+    try {
+      if (!['owner', 'admin'].includes(req.principal!.role)) return res.status(403).json({ error: 'Admin access required' })
+      res.json(await whisperDeleteModel(req.params.backend, req.params.model))
+    } catch (e) { next(e) }
   })
 
   // ── Uploads → audio_blobs ──────────────────────────────────

@@ -143,6 +143,31 @@ export async function revokeApiKey(id) {
   return json(await api(`/api/api-keys/${id}`, { method: 'DELETE' }))
 }
 
+// ── Local STT runtime ───────────────────────────────────────
+export async function getSttRuntime() {
+  return json(await api('/api/admin/stt'))
+}
+
+export async function downloadSttModel(backend, model) {
+  return json(await api('/api/admin/stt/models/download', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ backend, model }),
+  }))
+}
+
+export async function activateSttModel(backend, model) {
+  return json(await api('/api/admin/stt/models/activate', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ backend, model }),
+  }))
+}
+
+export async function deleteSttModel(backend, model) {
+  return json(await api(`/api/admin/stt/models/${encodeURIComponent(backend)}/${encodeURIComponent(model)}`, {
+    method: 'DELETE',
+  }))
+}
+
 // ── Meeting bot ─────────────────────────────────────────────
 export async function createMeetingBotRun({ joinUrl, title, startsAt, provider }) {
   return (await json(await api('/api/meeting-bot/runs', {

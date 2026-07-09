@@ -34,6 +34,17 @@ export async function enqueueTranscribeJob(
   principal: Principal, input: JobInput, webhookUrl: string | null,
   pool: pg.Pool = getPool(),
 ) {
+  const maxQueued = Math.max(1, Number(process.env.MAX_QUEUED_JOBS || 100))
+  const active = await pool.query(
+    `SELECT count(*)::int AS count FROM jobs
+     WHERE org_id = $1 AND status IN ('queued', 'running')`,
+    [principal.orgId],
+  )
+  if (Number(active.rows[0]?.count || 0) >= maxQueued) {
+    const error = new Error(`Queue capacity reached (${maxQueued}). Retry after a running job finishes.`)
+    ;(error as Error & { status?: number }).status = 429
+    throw error
+  }
   const res = await pool.query(
     `INSERT INTO jobs (org_id, owner_id, type, status, input, webhook_url)
      VALUES ($1, $2, 'transcribe', 'queued', $3, $4) RETURNING *`,

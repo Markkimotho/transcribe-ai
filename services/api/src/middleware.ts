@@ -52,10 +52,10 @@ export function validate<T>(schema: ZodSchema<T>) {
 }
 
 export function errorHandler() {
-  return (err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  return (err: Error & { status?: number }, _req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof AuthError) return res.status(401).json({ error: err.message })
     if (err instanceof ForbiddenError) return res.status(403).json({ error: err.message })
     console.error('[api]', err)
-    res.status(500).json({ error: err.message || 'Internal error' })
+    res.status(err.status || 500).json({ error: err.message || 'Internal error' })
   }
 }
