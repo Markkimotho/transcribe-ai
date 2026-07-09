@@ -25,7 +25,7 @@ export default function DropZone({ onFile, disabled }) {
       onDragLeave={() => setDragging(false)}
       onDrop={onDrop}
       onClick={() => !disabled && inputRef.current?.click()}
-      className={`rounded-lg border-2 border-dashed p-12 text-center cursor-pointer transition-all select-none ${dragging ? 'drag-active' : ''} ${disabled ? 'opacity-40 cursor-not-allowed' : 'hover:border-yellow-300/50'}`}
+      className={`rounded-xl border-2 border-dashed p-8 sm:p-10 text-center cursor-pointer transition-all select-none ${dragging ? 'drag-active' : ''} ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
       style={{ borderColor: dragging ? 'var(--accent)' : 'var(--border)', background: 'var(--surface)' }}
     >
       <input
@@ -37,23 +37,23 @@ export default function DropZone({ onFile, disabled }) {
       />
       <div className="flex justify-center mb-4">
         {fileName ? (
-          <div className="w-14 h-14 rounded-2xl flex items-center justify-center" style={{ background: 'rgba(var(--accent-rgb),0.1)', border: '1px solid rgba(var(--accent-rgb),0.2)' }}>
+          <div className="w-14 h-14 rounded-xl flex items-center justify-center" style={{ background: 'rgba(var(--accent-rgb),0.1)', border: '1px solid rgba(var(--accent-rgb),0.2)' }}>
             <FileAudio size={24} style={{ color: 'var(--accent)' }} />
           </div>
         ) : (
-          <div className="w-14 h-14 rounded-2xl flex items-center justify-center" style={{ background: 'rgba(var(--accent-rgb),0.06)', border: '1px solid var(--border)' }}>
+          <div className="w-14 h-14 rounded-xl flex items-center justify-center" style={{ background: 'rgba(var(--accent-rgb),0.06)', border: '1px solid var(--border)' }}>
             <Mic size={24} style={{ color: 'var(--muted)' }} />
           </div>
         )}
       </div>
-      <p className="font-display font-bold text-base mb-1">
-        {fileName || 'Drop your audio file here'}
+      <p className="font-semibold text-base mb-1">
+        {fileName || 'Drop a recording into the workspace'}
       </p>
       <p className="text-xs font-mono mb-3" style={{ color: 'var(--muted)' }}>
-        MP3 · WAV · M4A · OGG · FLAC · MP4 — up to 25MB
+        MP3 · WAV · M4A · OGG · FLAC · MP4
       </p>
       {!fileName && (
-        <div className="inline-flex items-center gap-1.5 text-[11px] font-mono px-3 py-1.5 rounded-md border transition-colors"
+        <div className="inline-flex items-center gap-1.5 text-[11px] font-mono px-3 py-1.5 rounded-lg border transition-colors"
           style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}>
           <Upload size={12} /> or click to browse
         </div>

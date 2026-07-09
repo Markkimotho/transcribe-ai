@@ -49,7 +49,7 @@ export default function TaskSelector({ task, onTaskChange }) {
         }}
       >
         <div
-          className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+          className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
           style={{ background: 'rgba(var(--accent-rgb),0.12)' }}
         >
           <CurrentIcon size={16} style={{ color: 'var(--accent)' }} />
@@ -102,7 +102,7 @@ export default function TaskSelector({ task, onTaskChange }) {
                           background: isActive ? 'rgba(var(--accent-rgb),0.08)' : 'transparent',
                           color: isActive ? 'var(--accent)' : 'var(--fg)',
                         }}
-                        onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'rgba(255,255,255,0.04)' }}
+                        onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'rgba(var(--accent-rgb),0.06)' }}
                         onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent' }}
                       >
                         <Icon size={14} style={{ color: isActive ? 'var(--accent)' : 'var(--muted)', flexShrink: 0 }} />
