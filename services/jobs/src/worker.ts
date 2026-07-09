@@ -84,11 +84,14 @@ export async function processJob(jobId: string, pool: pg.Pool = getPool()): Prom
 
 export async function startWorker(): Promise<void> {
   const boss = await getBoss()
-  await boss.work(QUEUE_TRANSCRIBE, { batchSize: 1 }, async (jobs) => {
-    for (const j of jobs) {
-      const { jobId } = j.data as { jobId: string }
-      await processJob(jobId)
-    }
-  })
-  console.log('⚙️  semaje worker consuming queue:', QUEUE_TRANSCRIBE)
+  const concurrency = Math.max(1, Number(process.env.WORKER_CONCURRENCY || 1))
+  for (let slot = 0; slot < concurrency; slot += 1) {
+    await boss.work(QUEUE_TRANSCRIBE, { batchSize: 1 }, async (jobs) => {
+      for (const j of jobs) {
+        const { jobId } = j.data as { jobId: string }
+        await processJob(jobId)
+      }
+    })
+  }
+  console.log(`semaje worker consuming ${QUEUE_TRANSCRIBE} with ${concurrency} slot(s)`)
 }

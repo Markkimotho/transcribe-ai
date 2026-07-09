@@ -2,3 +2,10 @@ node_modules
 npm-debug.log
 dist
 .env
+.git
+data
+uploads
+services/whisper/.venv
+services/whisper/vendor
+**/__pycache__
+**/* 2.*

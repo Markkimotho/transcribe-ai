@@ -1,0 +1,31 @@
+services:
+  whisper:
+    build:
+      context: .
+      dockerfile: services/whisper/Dockerfile.cuda
+    environment:
+      WHISPER_DEVICE: cuda
+      WHISPER_COMPUTE_TYPE: float16
+      WHISPER_MODEL: ${WHISPER_MODEL:-large-v3}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  worker:
+    environment:
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-4}
+    deploy:
+      replicas: ${WORKER_REPLICAS:-2}

@@ -1,7 +1,7 @@
 # semaje — Setup Guide
 
 Transcription platform: **local Whisper** does all speech-to-text, a **swappable
-LLM** (local Claude Code by default, Gemini fallback) handles the 15 language
+LLM** (local Ollama by default, Gemini optional) handles the 15 language
 tasks over the transcript, and everything lands in a **persistent, searchable
 library** with sharing, exports, async jobs for big files, and a realtime
 WebSocket for dictation. A browser extension dictates into any text box.
@@ -31,12 +31,26 @@ Deployment mode is **adapter-driven** — the same codebase runs:
 ## Quick start (Docker, recommended)
 
 ```bash
-cp .env.example .env       # set GEMINI_API_KEY if using the gemini LLM adapter
-npm install && npm run build
-docker compose up -d
-docker compose exec api npm run migrate
+cp .env.example .env
+deploy/semaje cpu up
 open http://localhost:8080
 ```
+
+The deploy command builds the web app in Docker, migrates Postgres, starts the
+worker, and persists blobs, models, exports, and logs. No hosted API key is
+needed.
+
+### Hardware profiles
+
+| Profile | Recommended hardware | Defaults | Command |
+|---|---|---|---|
+| `cpu` | 4 cores, 8 GB RAM, 10 GB disk | Whisper `base` int8, one worker | `deploy/semaje cpu up` |
+| `workstation-gpu` | NVIDIA 8+ GB VRAM, 16 GB RAM | Whisper `medium` fp16, two jobs | `deploy/semaje workstation-gpu up` |
+| `server-gpu` | NVIDIA 16+ GB VRAM, 32 GB RAM | Whisper `large-v3` fp16, two workers | `deploy/semaje server-gpu up` |
+
+GPU profiles require the NVIDIA driver and NVIDIA Container Toolkit. Override
+`WHISPER_MODEL`, `WORKER_CONCURRENCY`, and `WORKER_REPLICAS` in `.env` to fit
+your machine. Use `deploy/semaje <profile> status|logs|down` for operations.
 
 ## Local development (no Docker for the app)
 
@@ -65,10 +79,20 @@ point it at your server, dictate with `Cmd/Ctrl+Shift+1`.
 
 ## LLM adapter
 
-`LLM_ADAPTER=claude-local` (default) shells out to your local Claude Code CLI —
-no hosted API. `LLM_ADAPTER=gemini` uses the Gemini API (`GEMINI_API_KEY`).
-claude-local becomes the shipped default once `npm run eval:llm` passes all 15
-task rubrics for it; until then compose pins gemini.
+`LLM_ADAPTER=ollama` (default) calls the Ollama service on your own machine.
+`LLM_ADAPTER=claude-local` shells out to a locally installed Claude Code CLI.
+`LLM_ADAPTER=gemini` is an opt-in cloud adapter and requires `GEMINI_API_KEY`.
+
+## Upgrades
+
+1. Back up Postgres and the `blobdata` volume.
+2. Pull the new source or image tag.
+3. Run `deploy/semaje <profile> up`; the one-shot migration service finishes
+   before API and workers are replaced.
+4. Check `deploy/semaje <profile> status` and `/api/health`.
+
+Database migrations are forward-only. Restore the backup before downgrading to
+an older release.
 
 ## Tests & evals
 

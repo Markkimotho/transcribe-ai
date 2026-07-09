@@ -3,7 +3,7 @@
 Transcription platform for every context — upload, live mic, meetings, and
 dictation into any text box via the browser extension. Local-first: **Whisper**
 runs on your machine for all speech-to-text, the language tasks run through
-**local Claude Code** by default (Gemini optional), and every transcript lands
+**local Ollama** by default (cloud adapters optional), and every transcript lands
 in a **searchable, shareable library** you own.
 
 ## What it does
@@ -27,9 +27,7 @@ in a **searchable, shareable library** you own.
 
 ```bash
 cp .env.example .env
-npm install && npm run build
-docker compose up -d
-docker compose exec api npm run migrate
+deploy/semaje cpu up
 open http://localhost:8080
 ```
 
