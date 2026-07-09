@@ -14,7 +14,7 @@ export default function ApiKeySetup() {
       setEditing(false)
       setValue('')
     } else {
-      alert('Invalid key format. Gemini API keys start with "AIza"')
+      alert('Invalid key format. Direct-mode keys should start with "AIza".')
     }
   }
 
@@ -27,7 +27,7 @@ export default function ApiKeySetup() {
   // Key already saved — show confirmation
   if (apiKey && !editing) {
     return (
-      <div className="rounded-lg border p-4 text-sm flex items-center justify-between" style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}>
+      <div className="rounded-2xl border p-4 text-sm flex items-center justify-between" style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}>
         <div className="flex items-center gap-2">
           <CheckCircle size={15} style={{ color: 'var(--accent)' }} />
           <span className="font-mono text-xs" style={{ color: 'var(--muted)' }}>
@@ -47,14 +47,14 @@ export default function ApiKeySetup() {
 
   // No key — show input
   return (
-    <div className="rounded-lg border p-5 text-sm" style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}>
+    <div className="rounded-2xl border p-5 text-sm" style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}>
       <div className="flex items-center gap-2 mb-1">
         <KeyRound size={16} style={{ color: 'var(--accent)' }} />
-        <h2 className="font-display font-bold text-base">Enter your API Key</h2>
+        <h2 className="font-display font-bold text-base">Enter your direct-mode key</h2>
       </div>
       <p className="mb-3 text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>
         This app is in <strong>Direct mode</strong> — your key is stored locally in your browser and
-        never sent to any third-party server. Get a free key at{' '}
+        only used for task formatting. Get a free fallback key at{' '}
         <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer"
           className="inline-flex items-center gap-1 underline transition-colors" style={{ color: 'var(--accent)' }}>
           aistudio.google.com <ExternalLink size={10} />
@@ -67,7 +67,7 @@ export default function ApiKeySetup() {
           onChange={e => setValue(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && handleSave()}
           placeholder="AIza..."
-          className="flex-1 px-3 py-2 text-xs rounded-lg border font-mono outline-none focus:border-yellow-300/50 transition-colors"
+          className="flex-1 px-3 py-2 text-xs rounded-xl border font-mono outline-none transition-colors"
           style={{ background: 'var(--bg)', borderColor: 'var(--border)', color: 'var(--text)' }}
         />
         <button

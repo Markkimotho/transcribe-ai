@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-// Voxail — Master Prompt Builder
+// semaje — Master Prompt Builder
 // Builds task-specific prompts with universal rules + options
 // ═══════════════════════════════════════════════════════════════
 

@@ -1,0 +1,44 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Rebrand gate — no stray old-brand references
+        run: |
+          # split string so this workflow doesn't match itself
+          BRAND="vox""ail"
+          ! grep -ri "$BRAND" --exclude-dir=node_modules --exclude-dir=dist \
+            --exclude-dir=.venv --exclude-dir=_site --exclude-dir=.git \
+            --exclude-dir=vendor --exclude="*.pdf" . \
+            || (echo "Found leftover old branding" && exit 1)
+      - name: TypeScript typecheck
+        run: npm run typecheck
+      - name: Node gate tests
+        run: npm test
+      - name: Frontend build
+        run: npm run build
+
+  whisper:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: |
+          python -m venv services/whisper/.venv
+          services/whisper/.venv/bin/pip install -q -r services/whisper/requirements.txt -r services/whisper/requirements-dev.txt
+      - name: Whisper service gate tests
+        run: npm run test:whisper

@@ -5,5 +5,11 @@ uploads
 *.log
 .DS_Store
 TranscribeAI-ProjectFiles.html
+__pycache__/
+*.py[cod]
 
 _site/
+
+data/
+services/whisper/.venv/
+*.tsbuildinfo

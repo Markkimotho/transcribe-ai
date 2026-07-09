@@ -1,11 +1,11 @@
-# Voxail - AI-Powered Audio Transcription Platform
+# semaje - AI-Powered Audio Transcription Platform
 
 
 ## Overview
 
-**Voxail** is a production-ready, full-stack AI transcription platform powered by Google Gemini 2.0 Flash. It delivers intelligent, context-aware transcription across 15+ specialized domains — from medical dictation to legal depositions, live podcast recording to music lyrics extraction.
+**semaje** is a production-ready, full-stack AI transcription platform powered by Google Gemini 2.0 Flash. It delivers intelligent, context-aware transcription across 15+ specialized domains — from medical dictation to legal depositions, live podcast recording to music lyrics extraction.
 
-Unlike simple speech-to-text APIs, Voxail processes audio with deep contextual understanding through sophisticated prompt engineering (600+ lines of domain-specific rules), enabling transcription that adapts to professional and creative workflows.
+Unlike simple speech-to-text APIs, semaje processes audio with deep contextual understanding through sophisticated prompt engineering (600+ lines of domain-specific rules), enabling transcription that adapts to professional and creative workflows.
 
 ## Key Capabilities
 
@@ -143,10 +143,10 @@ npm run preview
 ### Docker Deployment
 
 ```bash
-docker build -t voxail:latest .
+docker build -t semaje:latest .
 docker run -p 3000:3000 \
   -e GEMINI_API_KEY=your_key \
-  voxail:latest
+  semaje:latest
 ```
 
 ## Usage

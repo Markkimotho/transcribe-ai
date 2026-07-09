@@ -1,171 +1,112 @@
-# Voxail — Setup Guide
+# semaje — Setup Guide
 
-Audio transcription powered by **Whisper** (local speech-to-text) with **Gemini**
-handling the language tasks (summary, sentiment, chapters, translation, meeting/
-medical/legal formatting, etc.) over the Whisper transcript.
-
-- **Whisper** does all speech-to-text. Two interchangeable backends:
-  `faster-whisper` (default, pure Python) or `whisper.cpp` (Metal on Apple Silicon).
-- **Gemini** never sees audio. It only post-processes the Whisper transcript for
-  the task features. Plain transcription and live transcription never call Gemini.
-
----
+Transcription platform: **local Whisper** does all speech-to-text, a **swappable
+LLM** (local Claude Code by default, Gemini fallback) handles the 15 language
+tasks over the transcript, and everything lands in a **persistent, searchable
+library** with sharing, exports, async jobs for big files, and a realtime
+WebSocket for dictation. A browser extension dictates into any text box.
 
 ## Architecture
 
 ```
-audio ─▶ Node/Express (server/) ─▶ Whisper STT service (services/whisper, :8011)
-                     │                         └─ faster-whisper | whisper.cpp
-                     ▼
-             task == transcription? ── yes ─▶ return Whisper transcript
-                     │ no
-                     ▼
-             Gemini over transcript text ─▶ return task output
+                       ┌─ services/whisper (STT, :8011, Python)
+web app / extension ─▶ services/api (:3001, HTTP + /ws)
+                       ├─ services/realtime (WS windows → whisper)
+                       ├─ services/jobs (pg-boss queue + worker)
+                       │    └─ storage → whisper → pipeline → llm → transcripts
+                       ├─ services/transcripts (Postgres FTS library, shares)
+                       ├─ services/auth (single-user | local-db)
+                       ├─ services/storage (fs | s3/MinIO)
+                       └─ services/llm (claude-local | gemini)
 ```
 
----
+Deployment mode is **adapter-driven** — the same codebase runs:
 
-## Prerequisites
+| Mode | AUTH_ADAPTER | STORAGE_ADAPTER | Stack |
+|---|---|---|---|
+| Single user (default) | `single-user` | `fs` | postgres + whisper + api/worker |
+| Small team | `local-db` | `fs` or `s3` | + accounts/login |
+| Cloud (Phase 3) | `oidc` | `s3` | + SSO, GPU pool |
 
-- **Node.js** 18+ — [nodejs.org](https://nodejs.org)
-- **Python** 3.11+ (for the Whisper service)
-- **ffmpeg** — `brew install ffmpeg` (audio decoding)
-- **Gemini API key** — only needed for the task features. [Get one free](https://aistudio.google.com/apikey). Plain transcription works with no key.
-- For the `whisper.cpp` backend: **cmake** — `brew install cmake`
-
----
-
-## 1. Install the Whisper STT service
+## Quick start (Docker, recommended)
 
 ```bash
-# faster-whisper backend (default). Downloads the model on first run.
+cp .env.example .env       # set GEMINI_API_KEY if using the gemini LLM adapter
+npm install && npm run build
+docker compose up -d
+docker compose exec api npm run migrate
+open http://localhost:8080
+```
+
+## Local development (no Docker for the app)
+
+Prereqs: Node 18+, Python 3.11+, ffmpeg, and Postgres running with a `semaje`
+database (`docker compose up -d postgres` works).
+
+```bash
+# 1. Whisper STT service (one-time)
 services/whisper/setup.sh
 
-# Also build the whisper.cpp backend (optional):
-BUILD_WHISPER_CPP=1 services/whisper/setup.sh
-```
-
-Pick a model with `WHISPER_MODEL` (default `base`): `tiny` | `base` | `small` |
-`medium` | `large-v3`. Bigger = more accurate, slower, larger download.
-
-## 2. Install the Node app
-
-```bash
+# 2. App deps + DB schema
 npm install
-```
+npm run migrate
 
-## 3. Configure environment
-
-```bash
-cp .env.example .env
-```
-
-Key settings (see `.env.example` for all):
-
-```env
-WHISPER_URL=http://localhost:8011   # where the Whisper service listens
-WHISPER_BACKEND=faster-whisper      # or whisper.cpp
-WHISPER_MODEL=base
-GEMINI_API_KEY=your-key-here        # tasks only; omit for transcription-only
-VITE_API_MODE=proxy                 # proxy | direct
-```
-
-### API Modes
-
-| Mode | How it works | Best for |
-|------|-------------|----------|
-| **proxy** (default) | Audio → your backend → Whisper (local) + Gemini (server key). | Production / shared |
-| **direct** | Whisper still runs on the server; the user's Gemini key is used only for tasks. | Personal use |
-
----
-
-## 4. Run
-
-```bash
+# 3. Everything at once: whisper (:8011) + api (:3001) + web (:5173)
 npm run dev
+
+# 4. The job worker (needed for >20MB async uploads), separate terminal:
+npm run worker
 ```
 
-Starts all three at once:
-- **Whisper STT** → `http://localhost:8011`
-- **Express backend** → `http://localhost:3001`
-- **Vite frontend** → `http://localhost:5173`
+## Browser extension
 
-Individually:
+See `services/extension/README.md` — load unpacked from `services/extension/`,
+point it at your server, dictate with `Cmd/Ctrl+Shift+1`.
+
+## LLM adapter
+
+`LLM_ADAPTER=claude-local` (default) shells out to your local Claude Code CLI —
+no hosted API. `LLM_ADAPTER=gemini` uses the Gemini API (`GEMINI_API_KEY`).
+claude-local becomes the shipped default once `npm run eval:llm` passes all 15
+task rubrics for it; until then compose pins gemini.
+
+## Tests & evals
 
 ```bash
-npm run dev:whisper    # Whisper STT service
-npm run dev:server     # Express only
-npm run dev:frontend   # Vite only
+npm test               # gate tests, all TS services (fast, free, no network)
+npm run test:whisper   # Python STT service gate tests
+npm run typecheck      # strict TS across services
+npm run eval:whisper   # STT accuracy (WER)
+npm run eval:llm       # 15 task rubrics × adapter(s)  [EVAL_ADAPTERS=claude-local,gemini]
+npm run eval:realtime  # streaming WER vs batch
 ```
 
----
-
-## 5. Tests & evals
-
-```bash
-npm test               # Node pipeline gate tests (routing) — fast, free
-npm run test:whisper   # Python service gate tests — fast, free
-npm run test:all       # both
-npm run eval:whisper   # real Whisper accuracy eval (WER threshold) — slow
-```
-
-Switch the eval to the other backend:
-
-```bash
-WHISPER_BACKEND=whisper.cpp npm run eval:whisper
-```
-
----
-
-## 6. Build for production
-
-```bash
-npm run build
-```
-
-The Whisper service runs as its own process — start it alongside the Node server
-(`services/whisper/run.sh`) in production.
-
----
-
-## Project Structure
+## Project structure
 
 ```
-voxail/
-├── server/
-│   ├── index.js          # Express: pipeline orchestration
-│   ├── pipeline.js       # pure Whisper↔Gemini routing (unit-tested)
-│   ├── pipeline.test.js  # gate tests
-│   ├── whisperClient.js  # calls the Whisper STT service
-│   └── gemini.js         # Gemini text-processing (transcript in, task out)
-│
-├── services/whisper/     # self-contained Whisper STT service
-│   ├── app.py            # FastAPI (contract.md)
-│   ├── config.py
-│   ├── backends/         # faster_whisper + whisper_cpp
-│   ├── tests/            # gate tests (fake backend)
-│   ├── evals/            # real accuracy eval
-│   ├── setup.sh / run.sh
-│   └── contract.md
-│
-└── src/                  # React frontend (unchanged tabs/tasks)
+packages/schemas/       zod contracts shared by every service
+packages/db/            pg pool factory
+migrations/             Postgres schema (node-pg-migrate)
+services/api/           HTTP gateway (auth, uploads, jobs, transcripts, rate limit)
+services/auth/          identity adapters + JWT + API keys + tenancy guard
+services/storage/       fs | s3 blob adapters
+services/transcripts/   library: CRUD, FTS search, shares, SRT/VTT/TXT/MD exports
+services/jobs/          pg-boss queue + transcription worker
+services/realtime/      WebSocket streaming STT (/ws)
+services/llm/           claude-local | gemini adapters + task evals
+services/pipeline/      pure Whisper↔LLM routing
+services/whisper/       STT engine (Python, faster-whisper | whisper.cpp)
+services/extension/     MV3 browser extension (dictation + library panel)
+src/                    React web app (transcribe, library, shares, settings)
 ```
-
----
-
-## Supported Formats
-
-Anything ffmpeg can decode: MP3, WAV, M4A, OGG, FLAC, MP4 — up to 25MB.
-
----
 
 ## Troubleshooting
 
-| Issue | Solution |
-|-------|----------|
-| Health shows `whisper.reachable: false` | Start the Whisper service: `npm run dev:whisper`. Check `WHISPER_URL`. |
-| Task features fail, transcription works | Missing/invalid `GEMINI_API_KEY`. Tasks need Gemini; plain transcription does not. |
-| `whisper.cpp binary not found` | Run `BUILD_WHISPER_CPP=1 services/whisper/setup.sh` (needs cmake). |
-| First transcription is slow | The Whisper model loads lazily on the first request, then stays warm. |
-| Port 8011 in use | Set `WHISPER_PORT` (service) and `WHISPER_URL` (server) to a free port. |
-| `require()` hangs / venv vanished on macOS | Project is on iCloud Drive — it evicts files. Keep `node_modules` and `.venv` downloaded (System Settings → Apple Account → iCloud → "Keep Downloaded"), or move the project off iCloud. |
+| Issue | Fix |
+|---|---|
+| `whisper.reachable: false` in /api/health | Start it: `npm run dev:whisper` (or the compose `whisper` service). |
+| Jobs stay `queued` | The worker isn't running: `npm run worker` (or compose `worker`). |
+| `claude-local failed to start` | Install Claude Code CLI or set `LLM_ADAPTER=gemini`. |
+| 401s in local-db mode | Register at `/login`, or create an API key at `/settings/api-keys`. |
+| Extension can't connect | Popup → set Server URL; check CORS_ORIGINS; API key valid? |
+| macOS: hangs / vanishing .venv | Project on iCloud Drive — keep it downloaded or move it off iCloud. |

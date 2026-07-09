@@ -1,37 +1,35 @@
-// Gate tests for the Whisper↔Gemini routing. Pure, deterministic, free.
-// Run: node --test server/
+// Gate tests for the Whisper↔LLM routing. Pure, deterministic, free.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  needsGemini, formatTimestamp, renderPlainTranscript,
+  needsLlm, formatTimestamp, renderPlainTranscript,
   buildTranscriptContext, TIMING_TASKS,
-} from './pipeline.js'
+} from '../src/index.ts'
 
 const whisper = {
   text: 'hello world this is a test',
   language: 'en',
-  duration: 6.0,
   segments: [
     { start: 0.0, end: 2.5, text: 'hello world' },
     { start: 2.5, end: 6.0, text: 'this is a test' },
   ],
 }
 
-test('plain transcription does NOT call Gemini', () => {
-  assert.equal(needsGemini('transcription', {}), false)
-  assert.equal(needsGemini('transcription', { timestamps: true }), false)
+test('plain transcription does NOT call the LLM', () => {
+  assert.equal(needsLlm('transcription', {}), false)
+  assert.equal(needsLlm('transcription', { timestamps: true }), false)
 })
 
-test('transcription with speaker labels or polish DOES call Gemini', () => {
-  assert.equal(needsGemini('transcription', { speakerLabels: true }), true)
-  assert.equal(needsGemini('transcription', { polish: true }), true)
+test('transcription with speaker labels or polish DOES call the LLM', () => {
+  assert.equal(needsLlm('transcription', { speakerLabels: true }), true)
+  assert.equal(needsLlm('transcription', { polish: true }), true)
 })
 
-test('every non-transcription task calls Gemini', () => {
+test('every non-transcription task calls the LLM', () => {
   for (const t of ['summary', 'sentiment', 'chapters', 'translation', 'subtitles',
     'captions', 'diarization', 'meeting', 'medical', 'legal', 'lyrics', 'voicemail',
     'multilingual', 'interview']) {
-    assert.equal(needsGemini(t, {}), true, `${t} should need Gemini`)
+    assert.equal(needsLlm(t, {}), true, `${t} should need the LLM`)
   }
 })
 
@@ -59,7 +57,7 @@ test('buildTranscriptContext uses plain text for non-timing tasks', () => {
   const ctx = buildTranscriptContext('summary', whisper)
   assert.match(ctx, /detected language: en/)
   assert.match(ctx, /TRANSCRIPT:\nhello world this is a test/)
-  assert.doesNotMatch(ctx, /-->/) // no segment timestamps
+  assert.doesNotMatch(ctx, /-->/)
 })
 
 test('buildTranscriptContext includes segment timestamps for timing tasks', () => {

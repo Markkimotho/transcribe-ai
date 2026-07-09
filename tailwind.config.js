@@ -7,7 +7,7 @@ export default {
       fontFamily: {
         sans: ['Inter', 'sans-serif'],
         mono: ['JetBrains Mono', 'monospace'],
-        display: ['Syne', 'sans-serif'],
+        display: ['Inter', 'sans-serif'],
       },
       colors: {
         accent: '#e8ff47',

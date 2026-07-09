@@ -1,104 +1,64 @@
-# Voxail
+# semaje
 
-AI-powered audio transcription built with React, Vite, and Gemini. Upload an audio file and get an accurate, well-formatted transcript with optional speaker labels and timestamps.
+Transcription platform for every context — upload, live mic, meetings, and
+dictation into any text box via the browser extension. Local-first: **Whisper**
+runs on your machine for all speech-to-text, the language tasks run through
+**local Claude Code** by default (Gemini optional), and every transcript lands
+in a **searchable, shareable library** you own.
 
-![Voxail](https://img.shields.io/badge/Powered%20by-Gemini%20AI-e8ff47?style=flat-square) ![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=white) ![Vite](https://img.shields.io/badge/Vite-5-646CFF?style=flat-square&logo=vite&logoColor=white)
+## What it does
 
-## Features
+- **Transcribe anything** — 15 task types: verbatim transcription, subtitles
+  (SRT), captions (VTT), summary, sentiment, chapters, translation,
+  multilingual, speaker ID, interview, meeting notes, medical, legal, lyrics,
+  voicemail.
+- **Library** — every transcript persisted, full-text searchable, exportable
+  (SRT/VTT/TXT/MD), shareable via public links.
+- **Big files** — async job pipeline (upload → queue → worker → library); no
+  25MB ceiling.
+- **Realtime** — WebSocket streaming STT for live mic and dictation.
+- **Browser extension** — Grammarly-style voice dictation into any text box on
+  any site, plus your library in a side panel. (`services/extension/`)
+- **Three deploy modes, one codebase** — single-user self-host (default,
+  zero login), small-team self-host (accounts), cloud multi-tenant (Phase 3),
+  switched by auth/storage adapters.
 
-- **Drag & drop upload** — MP3, WAV, M4A, OGG, FLAC, MP4 (up to 25MB)
-- **Speaker labels** — auto-detects speakers with contextual labels (Host/Guest, Interviewer/Respondent)
-- **Timestamps** — `[MM:SS]` or `[HH:MM:SS]` at each turn or paragraph
-- **Smart formatting** — handles numbers, acronyms, currencies, URLs, and multi-language audio
-- **Inaudible markers** — `[inaudible]` and `[word?]` instead of hallucinated guesses
-- **Audio type detection** — adapts output for podcasts, meetings, lectures, voicemails, and more
-- **Two API modes** — switchable from the UI:
-  - **Server mode** — API key stays hidden on your Express backend
-  - **Direct mode** — users bring their own Gemini key (no backend needed)
-- **Dark/light theme** — toggle from the header
-- **Copy & download** — one-click copy or download transcript as `.txt`
-
-## Quick Start
+## Quick start
 
 ```bash
-# Install dependencies
-npm install
-
-# Copy env and add your Gemini API key
 cp .env.example .env
-
-# Start dev server (frontend + backend)
-npm run dev
+npm install && npm run build
+docker compose up -d
+docker compose exec api npm run migrate
+open http://localhost:8080
 ```
 
-Open **http://localhost:5173**
+Dev mode and full docs: [SETUP.md](SETUP.md). Extension:
+[services/extension/README.md](services/extension/README.md).
 
-## Environment Variables
+## Architecture
 
-| Variable | Description | Default |
-|---|---|---|
-| `GEMINI_API_KEY` | Your Gemini API key | — |
-| `PORT` | Express server port | `3001` |
-| `VITE_API_MODE` | `proxy` (backend) or `direct` (user key) | `direct` |
+Services-first monorepo — each concern is a self-contained service with its own
+contract, tests, and evals:
 
-## Scripts
-
-| Command | Description |
+| Service | Role |
 |---|---|
-| `npm run dev` | Start Vite + Express concurrently |
-| `npm run dev:frontend` | Vite only (port 5173) |
-| `npm run dev:server` | Express only (port 3001) |
-| `npm run build` | Production build to `dist/` |
-| `npm run preview` | Preview production build |
-| `npm start` | Start Express in production |
+| `services/whisper` | STT engine (Python; faster-whisper / whisper.cpp) |
+| `services/api` | HTTP gateway: auth, uploads, jobs, transcripts, rate limits |
+| `services/realtime` | WebSocket streaming STT (`/ws`) |
+| `services/jobs` | pg-boss queue + transcription worker |
+| `services/transcripts` | Postgres FTS library, shares, exports |
+| `services/auth` | single-user / local-db adapters, JWT, API keys |
+| `services/storage` | fs / s3 (MinIO) blob adapters |
+| `services/llm` | claude-local / gemini adapters |
+| `services/pipeline` | pure Whisper↔LLM routing |
+| `services/extension` | MV3 browser extension |
 
-## Project Structure
+## Tests
 
+```bash
+npm test               # gate tests (all services, no network)
+npm run test:whisper   # Python STT gate tests
+npm run eval:llm       # LLM task-quality evals
+npm run eval:whisper   # STT accuracy (WER)
 ```
-voxail/
-├── server/
-│   └── index.js              # Express proxy + Gemini API
-├── src/
-│   ├── main.jsx
-│   ├── App.jsx
-│   ├── index.css
-│   ├── context/
-│   │   └── AppContext.jsx     # Theme, API mode, key state
-│   ├── hooks/
-│   │   └── useTranscribe.js   # Transcription logic
-│   ├── utils/
-│   │   └── transcribeApi.js   # Proxy & direct API calls
-│   └── components/
-│       ├── Header.jsx
-│       ├── ApiKeySetup.jsx
-│       ├── Instructions.jsx
-│       ├── DropZone.jsx
-│       ├── OptionsBar.jsx
-│       ├── TranscriptOutput.jsx
-│       └── Footer.jsx
-├── package.json
-├── vite.config.js
-├── tailwind.config.js
-└── postcss.config.js
-```
-
-## Deployment
-
-| Platform | Setup |
-|---|---|
-| **Railway** | Push to GitHub → connect repo → set `GEMINI_API_KEY` env var → deploy |
-| **Vercel + Render** | Frontend on Vercel, backend on Render. Update CORS origins. |
-| **Static (direct mode)** | `npm run build` → deploy `dist/` to Netlify/Cloudflare/GitHub Pages |
-| **Docker** | `docker build -t voxail . && docker run -p 3001:3001 -e GEMINI_API_KEY=... voxail` |
-
-See [SETUP.md](SETUP.md) for detailed instructions.
-
-## Tech Stack
-
-- **Frontend** — React 18, Vite, Tailwind CSS, Lucide React
-- **Backend** — Express, Multer
-- **AI** — Gemini 2.0 Flash (free tier)
-
-## License
-
-MIT

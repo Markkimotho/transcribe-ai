@@ -1,14 +1,13 @@
-import { Cpu, ShieldCheck } from 'lucide-react'
+import { Cpu, ShieldCheck, Workflow } from 'lucide-react'
 
 export default function Footer() {
   return (
-    <footer className="w-full py-6 text-center text-xs font-mono flex items-center justify-center gap-1.5" style={{ color: 'var(--muted)' }}>
+    <footer className="w-full py-8 text-center text-xs font-mono flex flex-wrap items-center justify-center gap-2" style={{ color: 'var(--muted)' }}>
       <Cpu size={12} />
-      Powered by{' '}
-      <a href="https://ai.google.dev" target="_blank" rel="noreferrer"
-        className="underline hover:text-yellow-300 transition-colors">
-        Gemini AI
-      </a>
+      Local Whisper STT
+      <span style={{ color: 'var(--border)' }}>·</span>
+      <Workflow size={12} />
+      Swappable LLM tasks
       <span style={{ color: 'var(--border)' }}>·</span>
       <ShieldCheck size={12} />
       Audio processed securely

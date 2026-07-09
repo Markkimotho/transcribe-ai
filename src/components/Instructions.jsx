@@ -4,8 +4,8 @@ import { Info, ChevronDown, ChevronUp, Upload, Sliders, FileText, Download, Mic,
 const steps = [
   {
     icon: Upload,
-    title: 'Upload your audio',
-    description: 'Drag & drop an audio file onto the drop zone, or click to browse your files. Supported formats: MP3, WAV, M4A, OGG, FLAC, and MP4 (up to 25MB).',
+    title: 'Add source audio',
+    description: 'Drop a recording, meeting export, voice memo, or video file into the capture deck, then keep working while semaje prepares the transcript.',
   },
   {
     icon: Sliders,
@@ -14,8 +14,8 @@ const steps = [
   },
   {
     icon: Mic,
-    title: 'AI transcription',
-    description: 'Gemini AI processes your audio and generates an accurate transcript. This typically takes 10–30 seconds depending on file length.',
+    title: 'Speech pipeline',
+    description: 'Local Whisper handles speech-to-text, then the active task adapter formats, summarizes, translates, or structures the result.',
   },
   {
     icon: FileText,
@@ -28,7 +28,7 @@ export default function Instructions() {
   const [open, setOpen] = useState(false)
 
   return (
-    <div className="rounded-lg border overflow-hidden" style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}>
+    <div className="rounded-xl border overflow-hidden" style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}>
       <button
         onClick={() => setOpen(o => !o)}
         className="w-full flex items-center justify-between px-5 py-3.5 text-left transition-colors hover:bg-white/[0.02]"
@@ -64,7 +64,7 @@ export default function Instructions() {
           <div className="mt-4 pt-3 border-t flex items-start gap-2" style={{ borderColor: 'var(--border)' }}>
             <KeyRound size={12} className="flex-shrink-0 mt-0.5" style={{ color: 'var(--muted)' }} />
             <p className="text-[11px] leading-relaxed" style={{ color: 'var(--muted)' }}>
-              <strong>Tip:</strong> In <em>Server mode</em>, your API key is kept securely on the backend. In <em>Direct mode</em>, you provide your own Gemini key — it's stored locally and never sent to third-party servers.
+              <strong>Tip:</strong> In <em>Server mode</em>, model credentials stay on the backend. In <em>Direct mode</em>, your browser uses a local key for task formatting.
             </p>
           </div>
         </div>

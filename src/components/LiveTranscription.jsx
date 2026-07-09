@@ -10,7 +10,7 @@ export default function LiveTranscription({ liveTranscribe, isBlocked }) {
 
   const handleStart = () => {
     if (isBlocked) {
-      setLocalError('Please enter your Gemini API key above before recording.')
+      setLocalError('Please enter your direct-mode key above before recording.')
       return
     }
     setLocalError('')
@@ -36,7 +36,7 @@ export default function LiveTranscription({ liveTranscribe, isBlocked }) {
   const displayError = error || localError
 
   return (
-    <div className="rounded-lg border overflow-hidden" style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}>
+    <div className="rounded-xl border overflow-hidden" style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}>
 
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: 'var(--border)' }}>
@@ -58,14 +58,14 @@ export default function LiveTranscription({ liveTranscribe, isBlocked }) {
             <>
               <button
                 onClick={handleCopy}
-                className="text-xs font-mono px-3 py-1.5 rounded-md border transition-colors flex items-center gap-1.5 hover:border-yellow-300/50"
+                className="text-xs font-mono px-3 py-1.5 rounded-xl border transition-colors flex items-center gap-1.5"
                 style={{ borderColor: 'var(--border)', color: copied ? '#4ade80' : 'var(--muted)' }}
               >
                 {copied ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
               </button>
               <button
                 onClick={handleDownload}
-                className="text-xs font-mono px-3 py-1.5 rounded-md border transition-colors flex items-center gap-1.5 hover:border-yellow-300/50"
+                className="text-xs font-mono px-3 py-1.5 rounded-xl border transition-colors flex items-center gap-1.5"
                 style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
               >
                 <Download size={12} /> .txt
@@ -81,6 +81,16 @@ export default function LiveTranscription({ liveTranscribe, isBlocked }) {
           )}
         </div>
       </div>
+
+      {/* Recording status bar */}
+      {liveTranscribe.savedId && (
+        <div className="flex items-center gap-3 px-5 py-2.5 border-b" style={{ borderColor: 'var(--border)', background: 'rgba(var(--accent-rgb),0.08)' }}>
+          <span className="w-2 h-2 rounded-full" style={{ background: 'var(--success)' }} />
+          <span className="text-xs font-mono" style={{ color: 'var(--muted)' }}>
+            Saved to library
+          </span>
+        </div>
+      )}
 
       {/* Recording status bar */}
       {isRecording && (
@@ -171,7 +181,7 @@ export default function LiveTranscription({ liveTranscribe, isBlocked }) {
             <div className="pt-3 flex justify-center border-t" style={{ borderColor: 'var(--border)' }}>
               <button
                 onClick={handleStart}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-mono border transition-all hover:border-yellow-300/50"
+                className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-mono border transition-all"
                 style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
               >
                 <Mic size={12} /> Record again

@@ -1,56 +1,70 @@
 // ═══════════════════════════════════════════════════════════════
-// Voxail pipeline — pure, deterministic routing between the two
-// engines. Whisper does STT; Gemini does language tasks over the
+// services/pipeline — pure, deterministic routing between the two
+// engines. Whisper does STT; the LLM does language tasks over the
 // Whisper transcript. No I/O here so it's unit-testable for free.
+// (Lifted from server/pipeline.js — same logic, now typed.)
 // ═══════════════════════════════════════════════════════════════
+import type { WhisperResult } from '@semaje/schemas'
 
-// Tasks where Gemini needs accurate timing → feed it the Whisper
+// Tasks where the LLM needs accurate timing → feed it the Whisper
 // segment timestamps. Everything else gets plain text.
 export const TIMING_TASKS = new Set([
   'subtitles', 'captions', 'chapters', 'diarization',
   'interview', 'legal', 'lyrics',
 ])
 
+export interface TaskOptions {
+  speakerLabels?: boolean
+  polish?: boolean
+  timestamps?: boolean
+  [key: string]: unknown
+}
+
 // The base "transcription" task is pure Whisper UNLESS the user asked
 // for something Whisper can't do on its own (speaker labels / polish).
-// Every other task is language work → Gemini.
-export function needsGemini(task, options = {}) {
+// Every other task is language work → LLM.
+export function needsLlm(task: string, options: TaskOptions = {}): boolean {
   if (task === 'transcription') {
     return !!(options.speakerLabels || options.polish)
   }
   return true
 }
 
-// HH:MM:SS.mmm — precise enough for Gemini to build SRT/VTT.
-export function formatTimestamp(seconds) {
+// HH:MM:SS.mmm — precise enough for the LLM to build SRT/VTT.
+export function formatTimestamp(seconds: number): string {
   const s = Math.max(0, Number(seconds) || 0)
   const hh = Math.floor(s / 3600)
   const mm = Math.floor((s % 3600) / 60)
   const ss = Math.floor(s % 60)
   const ms = Math.round((s - Math.floor(s)) * 1000)
-  const p = (n, w = 2) => String(n).padStart(w, '0')
+  const p = (n: number, w = 2) => String(n).padStart(w, '0')
   return `${p(hh)}:${p(mm)}:${p(ss)}.${p(ms, 3)}`
 }
 
 // [mm:ss] for human-readable inline timestamps in the plain transcript.
-function shortTs(seconds) {
+function shortTs(seconds: number): string {
   const s = Math.max(0, Number(seconds) || 0)
   const mm = Math.floor(s / 60)
   const ss = Math.floor(s % 60)
   return `[${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}]`
 }
 
-// Pure-Whisper transcription output (no Gemini). Honors the timestamps option.
-export function renderPlainTranscript(whisper, options = {}) {
+// Pure-Whisper transcription output (no LLM). Honors the timestamps option.
+export function renderPlainTranscript(
+  whisper: Pick<WhisperResult, 'text' | 'segments'>,
+  options: TaskOptions = {},
+): string {
   const segs = whisper?.segments || []
   if (!whisper?.text) return '[No speech detected]'
   if (!options.timestamps || segs.length === 0) return whisper.text
-
   return segs.map(s => `${shortTs(s.start)} ${s.text}`).join('\n')
 }
 
-// Build the transcript block appended to the Gemini task prompt.
-export function buildTranscriptContext(task, whisper) {
+// Build the transcript block appended to the LLM task prompt.
+export function buildTranscriptContext(
+  task: string,
+  whisper: Pick<WhisperResult, 'text' | 'segments' | 'language'>,
+): string {
   const lang = whisper?.language || 'unknown'
   const header =
     `SOURCE: The text below is a verbatim speech-to-text transcript produced ` +
@@ -60,7 +74,7 @@ export function buildTranscriptContext(task, whisper) {
       ? `Segment timestamps are provided as [start --> end]; use them for any timing.`
       : ``)
 
-  let body
+  let body: string
   const segs = whisper?.segments || []
   if (TIMING_TASKS.has(task) && segs.length > 0) {
     body = segs
