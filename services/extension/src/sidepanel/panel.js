@@ -19,7 +19,7 @@ function esc(s) {
 }
 
 async function load(q = '') {
-  $('status').textContent = 'Loading…'
+  $('status').textContent = 'Loading...'
   $('detail').textContent = ''
   $('back').style.display = 'none'
   try {
@@ -30,7 +30,7 @@ async function load(q = '') {
       ? transcripts.map(t => `
         <div class="item" data-id="${t.id}">
           <div class="title">${esc(t.title)}</div>
-          <div class="meta">${esc(t.task)} · ${new Date(t.created_at).toLocaleString()}</div>
+          <div class="meta">${esc(t.source || t.task)} / ${new Date(t.created_at).toLocaleString()}</div>
           <div class="preview">${esc(t.preview)}</div>
           <div class="actions">
             <button data-open="${t.id}">open</button>
@@ -40,7 +40,7 @@ async function load(q = '') {
       : '<p style="opacity:.6">No transcripts yet.</p>'
     $('status').textContent = ''
   } catch (e) {
-    $('status').textContent = `⚠ ${e.message} — check the server URL / API key in the popup.`
+    $('status').textContent = `${e.message}. Check the server URL and API key in the popup.`
     $('list').innerHTML = ''
   }
 }
@@ -50,7 +50,7 @@ async function open(id) {
   $('list').innerHTML = ''
   $('back').style.display = 'block'
   $('detail').innerHTML = `<div class="title">${esc(transcript.title)}</div>` +
-    `<div class="meta">${esc(transcript.task)} · ${new Date(transcript.created_at).toLocaleString()}</div>` +
+    `<div class="meta">${esc(transcript.source || transcript.task)} / ${new Date(transcript.created_at).toLocaleString()}</div>` +
     `<p>${esc(transcript.result ? String(transcript.result) : transcript.text)}</p>`
 }
 
@@ -61,7 +61,7 @@ $('list').addEventListener('click', async (e) => {
   if (copyId) {
     const { transcript } = await api(`/api/transcripts/${copyId}`)
     await navigator.clipboard.writeText(transcript.text)
-    e.target.textContent = 'copied ✓'
+    e.target.textContent = 'copied'
     setTimeout(() => { e.target.textContent = 'copy' }, 1200)
   }
 })

@@ -12,7 +12,9 @@ export const TaskId = z.enum([
 ])
 export type TaskId = z.infer<typeof TaskId>
 
-export const TranscriptSource = z.enum(['upload', 'live', 'meeting', 'dictation'])
+export const TranscriptSource = z.enum([
+  'upload', 'live', 'meeting', 'dictation', 'folder', 'api', 'desktop', 'extension',
+])
 export const JobStatus = z.enum(['queued', 'running', 'succeeded', 'failed', 'canceled'])
 export type JobStatus = z.infer<typeof JobStatus>
 export const Role = z.enum(['owner', 'admin', 'member', 'viewer'])
@@ -208,7 +210,21 @@ export type Job = z.infer<typeof Job>
 
 export const CreateJobRequest = JobInput.extend({
   webhookUrl: z.string().url().optional(),
+  idempotencyKey: z.string().min(8).max(200).optional(),
+  captureMeta: z.record(z.unknown()).optional(),
 })
+
+export const IngestRequest = z.object({
+  task: TaskId.default('transcription'),
+  options: z.record(z.unknown()).default({}),
+  language: z.string().max(16).optional(),
+  title: z.string().max(300).optional(),
+  source: TranscriptSource.default('api'),
+  webhookUrl: z.string().url().optional(),
+  idempotencyKey: z.string().min(8).max(200).optional(),
+  captureMeta: z.record(z.unknown()).default({}),
+})
+export type IngestRequest = z.infer<typeof IngestRequest>
 
 // ── API keys / shares ────────────────────────────────────────
 export const CreateApiKeyRequest = z.object({
@@ -234,6 +250,7 @@ export type CreateMeetingBotRunRequest = z.infer<typeof CreateMeetingBotRunReque
 export const RTClientStart = z.object({
   type: z.literal('start'),
   mode: z.enum(['dictation', 'meeting']).default('dictation'),
+  source: z.enum(['dictation', 'meeting', 'extension', 'desktop']).optional(),
   language: z.string().max(16).optional(),
   mimeType: z.string().max(100).optional(),
   title: z.string().max(300).optional(),

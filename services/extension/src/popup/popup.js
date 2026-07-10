@@ -11,19 +11,19 @@ $('save').addEventListener('click', async () => {
   const apiBase = $('apiBase').value.trim().replace(/\/$/, '') || 'http://localhost:3001'
   const apiKey = $('apiKey').value.trim()
   await chrome.storage.local.set({ apiBase, apiKey })
-  $('msg').textContent = 'Testing…'
+  $('msg').textContent = 'Testing...'
   try {
     const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : {}
     const res = await fetch(`${apiBase}/api/me`, { headers })
     if (res.ok) {
-      $('msg').textContent = '✓ Connected. Dictation: focus a text box and press Cmd/Ctrl+Shift+1.'
+      $('msg').textContent = 'Connected. Focus a text field and press Cmd/Ctrl+Shift+1.'
     } else if (res.status === 401) {
-      $('msg').textContent = '⚠ Server reached but the key was rejected (401).'
+      $('msg').textContent = 'Server reached, but the key was rejected (401).'
     } else {
-      $('msg').textContent = `⚠ Server error ${res.status}.`
+      $('msg').textContent = `Server error ${res.status}.`
     }
   } catch {
-    $('msg').textContent = '⚠ Cannot reach the server — is semaje running?'
+    $('msg').textContent = 'Cannot reach the server. Check that semaje is running.'
   }
 })
 

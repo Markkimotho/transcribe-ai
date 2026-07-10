@@ -19,6 +19,15 @@ export function requireAuth() {
   }
 }
 
+export function requireScope(scope: string) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const principal = req.principal
+    if (!principal) return res.status(401).json({ error: 'Authentication required' })
+    if (principal.via !== 'api-key' || principal.scopes.includes(scope)) return next()
+    return res.status(403).json({ error: `API key requires the ${scope} scope` })
+  }
+}
+
 const limiter = new RateLimiterMemory({
   points: Number(process.env.RATE_LIMIT_POINTS || 120),
   duration: Number(process.env.RATE_LIMIT_WINDOW_S || 60),

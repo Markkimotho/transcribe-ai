@@ -145,6 +145,25 @@ services:
       timeout: 5s
       retries: 10
 
+  watcher:
+    build:
+      context: .
+      target: app
+    command: npm run watch
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      WATCH_DIR: /watch
+      WATCH_API_BASE: http://api:3001
+      WATCH_API_KEY: ${WATCH_API_KEY:-}
+      WATCH_WEBHOOK_URL: ${WATCH_WEBHOOK_URL:-}
+      WATCH_SCAN_MS: ${WATCH_SCAN_MS:-4000}
+      WATCH_SETTLE_MS: ${WATCH_SETTLE_MS:-5000}
+    volumes:
+      - ${WATCH_DIR:-./data/watch}:/watch
+
   frontend:
     build:
       context: .

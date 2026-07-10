@@ -14,9 +14,10 @@ side panel. Vanilla JS — loads unpacked with no build step.
 
 ## Use
 
-- **Dictation**: focus any text field → a 🎙 button appears (or press
-  `Cmd/Ctrl+Shift+1`) → speak → final text is inserted at your caret.
-- **Library**: popup → "Open library panel" → browse/search/copy transcripts.
+- **Dictation**: focus any text field, use the semaje mic control (or press
+  `Cmd/Ctrl+Shift+1`), then speak. Final text is inserted at the caret and the
+  session is saved to the shared transcript library with source `extension`.
+- **Library**: open the side panel to browse, search, and copy transcripts.
 
 ## Architecture
 
@@ -30,6 +31,6 @@ sidepanel/panel.*           library UI on GET /api/transcripts
 popup/popup.*               server URL + API key config
 ```
 
-Auth: the API key (`smj_…`) doubles as the WS token (`/ws?token=`). Phase 2
-adds tab-audio meeting capture; Phase 3 adds the native host for system-wide
-dictation.
+Auth: the API key (`smj_...`) doubles as the WS token (`/ws?token=`). The
+content script resolves nested contenteditable editors and uses native value
+setters plus bubbling input events for framework-controlled fields.

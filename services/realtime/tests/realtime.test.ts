@@ -77,6 +77,21 @@ test('session: meeting mode persists and returns transcriptId in end', async () 
   assert.equal((persisted as { title: string }).title, 'Standup')
 })
 
+test('session: extension source persists into the shared transcript model', async () => {
+  const out = collect()
+  let source = ''
+  const s = new RealtimeSession(P, fakeTranscriber, async (_p, data) => {
+    source = data.source
+    return { id: '33333333-3333-4333-8333-333333333333' }
+  }, out, 1_000_000)
+  await s.handleMessage(JSON.stringify({
+    type: 'start', mode: 'dictation', source: 'extension', title: 'Browser dictation',
+  }))
+  s.handleAudio(Buffer.alloc(5000))
+  await s.handleMessage(JSON.stringify({ type: 'stop' }))
+  assert.equal(source, 'extension')
+})
+
 test('session: dictation without title does NOT persist', async () => {
   const out = collect()
   let persistCalled = false

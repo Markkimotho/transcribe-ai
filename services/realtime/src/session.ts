@@ -9,7 +9,7 @@ export type Transcriber = (
 
 export type Persister = (
   principal: Principal,
-  data: { title: string; source: 'dictation' | 'meeting'; text: string; segments: { start: number; end: number; text: string }[]; language: string | null; durationSec: number },
+  data: { title: string; source: 'dictation' | 'meeting' | 'extension' | 'desktop'; text: string; segments: { start: number; end: number; text: string }[]; language: string | null; durationSec: number },
 ) => Promise<{ id: string }>
 
 export interface SessionEvents {
@@ -21,6 +21,7 @@ export class RealtimeSession {
   private started = false
   private stopped = false
   private mode: 'dictation' | 'meeting' = 'dictation'
+  private source: 'dictation' | 'meeting' | 'extension' | 'desktop' = 'dictation'
   private language: string | undefined
   private mimeType = 'audio/webm'
   private title = ''
@@ -50,6 +51,7 @@ export class RealtimeSession {
       if (this.started) return
       this.started = true
       this.mode = msg.mode
+      this.source = msg.source || msg.mode
       this.language = msg.language
       this.mimeType = msg.mimeType || 'audio/webm'
       this.title = msg.title || ''
@@ -105,7 +107,7 @@ export class RealtimeSession {
       try {
         const saved = await this.persist(this.principal, {
           title: this.title || `${this.mode} ${new Date().toISOString().slice(0, 16)}`,
-          source: this.mode,
+          source: this.source,
           text: this.finals.map(f => f.text).join(' '),
           segments: this.finals,
           language: this.detectedLanguage,

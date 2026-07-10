@@ -2,11 +2,7 @@ import { useState, useContext, useCallback } from 'react'
 import { AppContext } from '../context/AppContext'
 import { transcribeViaProxy, transcribeDirect } from '../utils/transcribeApi'
 import { buildPrompt, getDefaultOptions } from '../utils/promptBuilder'
-import { uploadAudio, createJob, pollJob, getTranscript, saveTranscript } from '../utils/apiClient'
-
-// Files above this go through the async job pipeline (upload → queue → poll)
-// instead of the sync endpoint. Lifts the old 25MB ceiling.
-const SYNC_MAX_BYTES = 20 * 1024 * 1024
+import { ingestAudio, pollJob, getTranscript, saveTranscript } from '../utils/apiClient'
 
 export function useTranscribe() {
   const { apiMode, apiKey } = useContext(AppContext)
@@ -17,22 +13,24 @@ export function useTranscribe() {
   const [task, setTask] = useState('transcription')
   const [options, setOptions] = useState(getDefaultOptions('transcription'))
   const [savedId, setSavedId] = useState(null)
+  const [jobId, setJobId] = useState(null)
 
   const changeTask = useCallback((newTask) => {
     setTask(newTask)
     setOptions(getDefaultOptions(newTask))
   }, [])
 
-  const handleLargeFile = async (file) => {
-    setStatus('Uploading…')
-    const blob = await uploadAudio(file)
-    setStatus('Queued for transcription…')
-    const job = await createJob({
-      audioBlobId: blob.id, task, options, title: file.name.replace(/\.[^.]+$/, ''),
+  const handleQueuedFile = async (file) => {
+    setStatus('Uploading recording...')
+    const { job } = await ingestAudio(file, {
+      task, options, source: 'upload', title: file.name.replace(/\.[^.]+$/, ''),
+      captureMeta: { client: 'web', lastModified: file.lastModified },
     })
+    setJobId(job.id)
+    setStatus('Waiting for a worker...')
     const done = await pollJob(job.id, {
       onProgress: j => setStatus(
-        j.status === 'running' ? `Transcribing… ${j.progress}%` : `Job ${j.status}…`,
+        j.status === 'running' ? `Transcribing... ${j.progress}%` : `Job ${j.status}...`,
       ),
     })
     if (done.status !== 'succeeded') throw new Error(done.error || `Job ${done.status}`)
@@ -76,11 +74,12 @@ export function useTranscribe() {
     setTranscript('')
     setError('')
     setSavedId(null)
+    setJobId(null)
 
     try {
       if (apiMode === 'direct' && !apiKey) throw new Error('Please enter your direct-mode key above.')
-      const result = file.size > SYNC_MAX_BYTES
-        ? await handleLargeFile(file)
+      const result = apiMode === 'proxy'
+        ? await handleQueuedFile(file)
         : await handleSyncFile(file)
       setTranscript(result)
       setStatus('Done!')
@@ -92,5 +91,5 @@ export function useTranscribe() {
     }
   }
 
-  return { transcript, status, error, loading, task, changeTask, options, setOptions, handleFile, savedId }
+  return { transcript, status, error, loading, task, changeTask, options, setOptions, handleFile, savedId, jobId }
 }

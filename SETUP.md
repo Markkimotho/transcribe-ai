@@ -94,6 +94,25 @@ Optional semantic search uses the configured Ollama endpoint with
 transcripts automatically; existing transcripts can be indexed from the API.
 Vectors remain in Postgres as arrays, so pgvector is not required.
 
+## Watched-folder capture
+
+The standard Compose stack includes a folder watcher. Drop supported audio or video files into
+`./data/watch`; stable files are submitted through the same `/api/ingest` queue used by the web UI
+and moved to `./data/watch/.semaje/completed` or `failed` when processing reaches a terminal state.
+
+For `AUTH_ADAPTER=local-db`, create a transcribe-scoped key in Platform > API keys and set
+`WATCH_API_KEY`. Outside Compose, run `npm run watch` and configure `WATCH_DIR` plus
+`WATCH_API_BASE` as needed. Content hashes provide idempotency, so renamed duplicate recordings do
+not create duplicate transcripts.
+
+API clients can send a multipart `POST /api/ingest` with an `audio` file and optional `task`,
+`options`, `source`, `webhookUrl`, and `Idempotency-Key`. Completion webhooks include an
+`X-Semaje-Signature` HMAC header. Failed jobs can be requeued with `POST /api/jobs/:id/retry`.
+
+For lightweight local microphone or system-audio capture, install ffmpeg and run
+`npm run desktop -- --list-devices`, then `npm run desktop -- --input <device>`. The helper submits
+the resulting mono WAV through the same ingest endpoint and does not require Electron.
+
 ## Upgrades
 
 1. Back up Postgres and the `blobdata` volume.
@@ -127,6 +146,8 @@ services/auth/          identity adapters + JWT + API keys + tenancy guard
 services/storage/       fs | s3 blob adapters
 services/transcripts/   library: CRUD, FTS search, shares, SRT/VTT/TXT/MD exports
 services/jobs/          pg-boss queue + transcription worker
+services/ingest/        watched-folder intake through the shared ingest API
+services/desktop/       optional ffmpeg microphone/system-audio capture helper
 services/realtime/      WebSocket streaming STT (/ws)
 services/llm/           claude-local | gemini adapters + task evals
 services/pipeline/      pure Whisper↔LLM routing

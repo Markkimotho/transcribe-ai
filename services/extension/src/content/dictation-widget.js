@@ -15,17 +15,23 @@
   const shadow = host.attachShadow({ mode: 'closed' })
   const btn = document.createElement('button')
   btn.setAttribute('aria-label', 'Dictate with semaje')
-  btn.innerHTML = '🎙'
+  btn.title = 'Dictate with semaje'
+  btn.innerHTML = '<span class="mic"><i></i></span>'
   const style = document.createElement('style')
   style.textContent = `
     button {
-      width: 30px; height: 30px; border-radius: 50%; border: none; cursor: pointer;
-      background: linear-gradient(135deg,#e8ff47,#ff6b35); font-size: 14px;
-      box-shadow: 0 2px 8px rgba(0,0,0,.25); transition: transform .15s;
+      display:grid; place-items:center; width:32px; height:32px; border-radius:8px;
+      border:1px solid rgba(255,255,255,.18); cursor:pointer; color:white;
+      background:#101817; box-shadow:0 5px 18px rgba(0,0,0,.28); transition:transform .15s,background .15s;
     }
-    button:hover { transform: scale(1.1); }
-    button.listening { animation: pulse 1.2s infinite; }
-    @keyframes pulse { 50% { box-shadow: 0 0 0 8px rgba(255,107,53,.25); } }
+    button:hover { transform:translateY(-1px); background:#173330; }
+    button.listening { background:#ce5a38; animation:pulse 1.2s infinite; }
+    button.error { background:#a53430; }
+    .mic { position:relative; display:block; width:12px; height:16px; }
+    .mic::before { content:""; position:absolute; left:3px; top:0; width:6px; height:10px; border:1.5px solid currentColor; border-radius:4px; }
+    .mic::after { content:""; position:absolute; left:1px; top:7px; width:10px; height:6px; border:1.5px solid currentColor; border-top:0; border-radius:0 0 7px 7px; }
+    .mic i { position:absolute; left:5px; bottom:0; width:2px; height:4px; background:currentColor; }
+    @keyframes pulse { 50% { box-shadow:0 0 0 7px rgba(206,90,56,.22); } }
   `
   shadow.append(style, btn)
   document.documentElement.appendChild(host)
@@ -50,7 +56,8 @@
   function setListening(on, error) {
     listening = on
     btn.classList.toggle('listening', on)
-    btn.innerHTML = on ? '⏺' : error ? '⚠️' : '🎙'
+    btn.classList.toggle('error', Boolean(error))
+    btn.title = error || (on ? 'Stop semaje dictation' : 'Dictate with semaje')
     if (on && lastEditable) positionNear(lastEditable)
   }
 
@@ -65,6 +72,11 @@
       insertAtCursor(lastEditable, (msg.text.endsWith(' ') ? msg.text : msg.text + ' '))
     } else if (msg?.kind === 'dictation:state') {
       setListening(msg.state === 'listening', msg.state === 'error')
+    } else if (msg?.kind === 'dictation:saved' && msg.transcriptId) {
+      btn.title = 'Dictation saved to semaje'
     }
   })
+
+  window.addEventListener('scroll', () => { if (lastEditable && host.style.display !== 'none') positionNear(lastEditable) }, true)
+  window.addEventListener('resize', () => { if (lastEditable && host.style.display !== 'none') positionNear(lastEditable) })
 })()

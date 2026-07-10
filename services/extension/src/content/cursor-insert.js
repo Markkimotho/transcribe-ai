@@ -10,10 +10,18 @@ export function isEditable(el) {
     const ok = ['text', 'search', 'url', 'tel', 'email', ''].includes((el.type || '').toLowerCase())
     return ok && !el.disabled && !el.readOnly
   }
-  return el.isContentEditable === true
+  return el.isContentEditable === true || el.closest?.('[contenteditable="true"]') != null
+}
+
+function editableRoot(el) {
+  if (!el) return null
+  const tag = (el.tagName || '').toLowerCase()
+  if (tag === 'input' || tag === 'textarea') return el
+  return el.closest?.('[contenteditable="true"]') || (el.isContentEditable ? el : null)
 }
 
 export function insertAtCursor(el, text) {
+  el = editableRoot(el)
   if (!isEditable(el) || !text) return false
   const tag = (el.tagName || '').toLowerCase()
   const win = el.ownerDocument?.defaultView || window
@@ -22,14 +30,13 @@ export function insertAtCursor(el, text) {
   if (tag === 'input' || tag === 'textarea') {
     const start = el.selectionStart ?? el.value.length
     const end = el.selectionEnd ?? el.value.length
-    // setRangeText keeps undo history in most browsers
-    if (typeof el.setRangeText === 'function') {
-      el.setRangeText(text, start, end, 'end')
-    } else {
-      el.value = el.value.slice(0, start) + text + el.value.slice(end)
-      const pos = start + text.length
-      el.selectionStart = el.selectionEnd = pos
-    }
+    const next = el.value.slice(0, start) + text + el.value.slice(end)
+    const prototype = tag === 'textarea' ? win.HTMLTextAreaElement.prototype : win.HTMLInputElement.prototype
+    const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set
+    if (setter) setter.call(el, next)
+    else el.value = next
+    const pos = start + text.length
+    el.selectionStart = el.selectionEnd = pos
     emitInput()
     return true
   }

@@ -50,6 +50,10 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
       break
     case 'offscreen:state':
       toTab({ kind: 'dictation:state', state: msg.state, error: msg.error })
+      if (msg.state === 'idle' || msg.state === 'error') dictationTabId = null
+      break
+    case 'offscreen:saved':
+      toTab({ kind: 'dictation:saved', transcriptId: msg.transcriptId })
       break
   }
 })

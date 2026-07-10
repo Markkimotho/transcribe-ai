@@ -204,6 +204,16 @@ export async function uploadAudio(file) {
   return (await json(await api('/api/uploads', { method: 'POST', body: form }))).audioBlob
 }
 
+export async function ingestAudio(file, input = {}) {
+  const form = new FormData()
+  form.append('audio', file)
+  for (const [key, value] of Object.entries(input)) {
+    if (value == null || value === '') continue
+    form.append(key, typeof value === 'object' ? JSON.stringify(value) : String(value))
+  }
+  return json(await api('/api/ingest', { method: 'POST', body: form }))
+}
+
 export async function createJob({ audioBlobId, task, options, language, title }) {
   return (await json(await api('/api/jobs', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -213,6 +223,14 @@ export async function createJob({ audioBlobId, task, options, language, title })
 
 export async function getJob(id) {
   return (await json(await api(`/api/jobs/${id}`))).job
+}
+
+export async function listJobs(limit = 30) {
+  return (await json(await api(`/api/jobs?limit=${limit}`))).jobs
+}
+
+export async function retryJob(id) {
+  return (await json(await api(`/api/jobs/${id}/retry`, { method: 'POST' }))).job
 }
 
 export async function pollJob(id, { intervalMs = 2000, onProgress } = {}) {

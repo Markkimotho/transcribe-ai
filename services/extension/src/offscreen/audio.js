@@ -31,7 +31,10 @@ async function start({ apiBase, apiKey }) {
   ws.binaryType = 'arraybuffer'
 
   ws.onopen = () => {
-    ws.send(JSON.stringify({ type: 'start', mode: 'dictation', mimeType }))
+    ws.send(JSON.stringify({
+      type: 'start', mode: 'dictation', source: 'extension',
+      title: `Browser dictation ${new Date().toLocaleString()}`, mimeType,
+    }))
     recorder = new MediaRecorder(stream, { mimeType })
     recorder.ondataavailable = (e) => {
       if (e.data?.size > 0 && ws?.readyState === WebSocket.OPEN) {
@@ -49,6 +52,7 @@ async function start({ apiBase, apiKey }) {
     } else if (msg.type === 'error') {
       console.warn('[semaje]', msg.error)
     } else if (msg.type === 'end') {
+      chrome.runtime.sendMessage({ kind: 'offscreen:saved', transcriptId: msg.transcriptId })
       cleanup()
     }
   }

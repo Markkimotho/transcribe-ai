@@ -15,6 +15,7 @@ import {
   UpdateTranscriptRequest, RenameSpeakerRequest, GlossaryTermRequest,
   LlmSettingsRequest,
   KnowledgeSearchQuery, CollectionRequest, SavedSearchRequest, AskKnowledgeRequest,
+  IngestRequest, type Principal,
 } from '@semaje/schemas'
 import {
   registerUser, loginUser, signAccessToken, signRefreshToken, verifyToken,
@@ -28,7 +29,7 @@ import {
   listGlossary, upsertGlossaryTerm, deleteGlossaryTerm,
   applyGlossary, cleanupPunctuation, speakerLabels, summarizeQuality,
 } from '../../transcripts/src/index.ts'
-import { enqueueTranscribeJob, getJob } from '../../jobs/src/index.ts'
+import { enqueueTranscribeJob, getJob, listJobs, retryJob } from '../../jobs/src/index.ts'
 import { assertBotTransition, detectMeetingProvider } from '../../meeting-bot/src/index.ts'
 import {
   whisperHealth, whisperTranscribe, whisperModels, whisperDownloadModel,
@@ -44,7 +45,7 @@ import {
   keywordSearch, semanticSearch, indexTranscriptEmbedding, locateTimestamp,
 } from '../../search/src/index.ts'
 import { GeminiAdapter } from '../../llm/src/adapters/gemini.ts'
-import { requireAuth, rateLimit, validate, errorHandler } from './middleware.ts'
+import { requireAuth, requireScope, rateLimit, validate, errorHandler } from './middleware.ts'
 
 export function createApp(opts: { enableJobs?: boolean } = {}): Express {
   const app = express()
@@ -61,10 +62,37 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
     dest: process.env.UPLOAD_TMP_DIR || 'uploads/',
     limits: { fileSize: Number(process.env.UPLOAD_MAX_MB || 500) * 1024 * 1024 },
     fileFilter: (_req, file, cb) => {
-      if (file.mimetype.startsWith('audio/') || file.mimetype.startsWith('video/')) cb(null, true)
+      const extension = file.originalname.split('.').pop()?.toLowerCase()
+      const supported = new Set(['mp3', 'wav', 'm4a', 'ogg', 'oga', 'flac', 'aac', 'webm', 'mp4', 'mov', 'mkv'])
+      if (file.mimetype.startsWith('audio/') || file.mimetype.startsWith('video/') || supported.has(extension || '')) cb(null, true)
       else cb(new Error('Only audio and video files are supported.'))
     },
   })
+
+  const persistUpload = async (file: Express.Multer.File, principal: Principal) => {
+    const blobId = randomUUID()
+    const ext = file.originalname.split('.').pop() || 'bin'
+    const key = audioKey(principal.orgId, blobId, ext)
+    const storage = await getStorage()
+    await storage.put(key, await readFile(file.path), file.mimetype)
+    const row = await getPool().query(
+      `INSERT INTO audio_blobs (id, org_id, owner_id, storage_key, mime_type, size_bytes)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, storage_key, mime_type, size_bytes`,
+      [blobId, principal.orgId, principal.userId, key, file.mimetype, file.size],
+    )
+    return row.rows[0]
+  }
+
+  const parseJsonField = (value: unknown, fallback: unknown) => {
+    if (value == null || value === '') return fallback
+    if (typeof value !== 'string') return value
+    try { return JSON.parse(value) }
+    catch {
+      const error = new Error('Multipart options and captureMeta fields must contain valid JSON.') as Error & { status?: number }
+      error.status = 400
+      throw error
+    }
+  }
 
   // ── Health ─────────────────────────────────────────────────
   app.get('/api/health', async (_req, res) => {
@@ -185,27 +213,16 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
   })
 
   // ── Uploads → audio_blobs ──────────────────────────────────
-  app.post('/api/uploads', requireAuth(), rateLimit(), upload.single('audio'), async (req, res, next) => {
+  app.post('/api/uploads', requireAuth(), requireScope('transcribe'), rateLimit(), upload.single('audio'), async (req, res, next) => {
     const tmpPath = req.file?.path
     try {
       if (!req.file) return res.status(400).json({ error: 'No audio file provided.' })
-      const p = req.principal!
-      const blobId = randomUUID()
-      const ext = (req.file.originalname.split('.').pop() || 'bin')
-      const key = audioKey(p.orgId, blobId, ext)
-      const storage = await getStorage()
-      await storage.put(key, await readFile(tmpPath!), req.file.mimetype)
-      const row = await getPool().query(
-        `INSERT INTO audio_blobs (id, org_id, owner_id, storage_key, mime_type, size_bytes)
-         VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, storage_key, mime_type, size_bytes`,
-        [blobId, p.orgId, p.userId, key, req.file.mimetype, req.file.size],
-      )
-      res.status(201).json({ audioBlob: row.rows[0] })
+      res.status(201).json({ audioBlob: await persistUpload(req.file, req.principal!) })
     } catch (e) { next(e) }
     finally { if (tmpPath) unlink(tmpPath).catch(() => {}) }
   })
 
-  app.post('/api/uploads/presign', requireAuth(), rateLimit(), async (req, res, next) => {
+  app.post('/api/uploads/presign', requireAuth(), requireScope('transcribe'), rateLimit(), async (req, res, next) => {
     try {
       const p = req.principal!
       const mimeType = String(req.body?.mimeType || 'audio/mpeg')
@@ -225,20 +242,79 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
   })
 
   // ── Async jobs ─────────────────────────────────────────────
+  app.post('/api/ingest', requireAuth(), requireScope('transcribe'), rateLimit(), upload.single('audio'), async (req, res, next) => {
+    const tmpPath = req.file?.path
+    try {
+      if (!req.file) return res.status(400).json({ error: 'No audio file provided.' })
+      const idempotencyKey = String(req.body?.idempotencyKey || req.header('Idempotency-Key') || '') || undefined
+      if (idempotencyKey) {
+        const existing = await getPool().query(
+          `SELECT * FROM jobs WHERE org_id = $1 AND ingest_key = $2`,
+          [req.principal!.orgId, idempotencyKey],
+        )
+        if (existing.rows[0]) return res.status(200).json({ job: existing.rows[0], duplicate: true })
+      }
+      const parsed = IngestRequest.safeParse({
+        task: req.body?.task || undefined,
+        options: parseJsonField(req.body?.options, {}),
+        language: req.body?.language || undefined,
+        title: req.body?.title || req.file.originalname.replace(/\.[^.]+$/, ''),
+        source: req.body?.source || undefined,
+        webhookUrl: req.body?.webhookUrl || undefined,
+        idempotencyKey,
+        captureMeta: parseJsonField(req.body?.captureMeta, {}),
+      })
+      if (!parsed.success) {
+        return res.status(400).json({
+          error: 'Invalid ingest request',
+          details: parsed.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`),
+        })
+      }
+      const blob = await persistUpload(req.file, req.principal!)
+      const { webhookUrl, idempotencyKey: key, captureMeta, ...input } = parsed.data
+      const job = await enqueueTranscribeJob(
+        req.principal!, { ...input, audioBlobId: blob.id }, webhookUrl ?? null,
+        {
+          idempotencyKey: key,
+          captureMeta: {
+            filename: req.file.originalname,
+            mimeType: req.file.mimetype,
+            sizeBytes: req.file.size,
+            ...captureMeta,
+          },
+        },
+      )
+      res.status(202).json({ job, audioBlob: blob, duplicate: false })
+    } catch (e) { next(e) }
+    finally { if (tmpPath) unlink(tmpPath).catch(() => {}) }
+  })
+
   if (enableJobs) {
-    app.post('/api/jobs', requireAuth(), rateLimit(), validate(CreateJobRequest), async (req, res, next) => {
+    app.post('/api/jobs', requireAuth(), requireScope('transcribe'), rateLimit(), validate(CreateJobRequest), async (req, res, next) => {
       try {
-        const { webhookUrl, ...input } = req.body
-        const job = await enqueueTranscribeJob(req.principal!, input, webhookUrl ?? null)
+        const { webhookUrl, idempotencyKey, captureMeta, ...input } = req.body
+        const job = await enqueueTranscribeJob(req.principal!, input, webhookUrl ?? null, { idempotencyKey, captureMeta })
         res.status(202).json({ job })
       } catch (e) { next(e) }
     })
   }
+  app.get('/api/jobs', requireAuth(), rateLimit(), async (req, res, next) => {
+    try { res.json({ jobs: await listJobs(req.principal!, Number(req.query.limit || 30)) }) }
+    catch (e) { next(e) }
+  })
   app.get('/api/jobs/:id', requireAuth(), rateLimit(), async (req, res, next) => {
     try {
       const job = await getJob(req.principal!, req.params.id)
       if (!job) return res.status(404).json({ error: 'Job not found' })
       res.json({ job })
+    } catch (e) { next(e) }
+  })
+
+  app.post('/api/jobs/:id/retry', requireAuth(), requireScope('transcribe'), rateLimit(), async (req, res, next) => {
+    try {
+      const job = await retryJob(req.principal!, req.params.id)
+      if (!job) return res.status(404).json({ error: 'Failed job not found' })
+      res.status(202).json({ job })
     } catch (e) { next(e) }
   })
 

@@ -60,6 +60,15 @@ test('appends into contenteditable without a selection inside it', () => {
   assert.equal(el.textContent, 'note: dictated text')
 })
 
+test('resolves nested nodes inside a contenteditable editor', () => {
+  const el = make('<div contenteditable="true"><span>note: </span></div>')
+  Object.defineProperty(el, 'isContentEditable', { value: true })
+  const child = el.firstElementChild as HTMLElement
+  assert.equal(isEditable(child), true)
+  assert.equal(insertAtCursor(child, 'nested text'), true)
+  assert.equal(el.textContent, 'note: nested text')
+})
+
 test('fires an input event so frameworks (React etc.) see the change', () => {
   const el = make('<input type="text" value="" />') as HTMLInputElement
   let fired = false

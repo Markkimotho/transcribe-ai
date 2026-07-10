@@ -11,7 +11,10 @@ import {
   saveCollection, saveSearch, searchKnowledge, updateTranscript,
 } from '../../utils/apiClient'
 
-const SOURCE_ICON = { upload: FileAudio, live: Radio, meeting: Users, dictation: Mic }
+const SOURCE_ICON = {
+  upload: FileAudio, live: Radio, meeting: Users, dictation: Mic, folder: Folder,
+  api: Database, desktop: Radio, extension: Mic,
+}
 const emptyFilters = { q: '', mode: 'keyword', source: '', task: '', speaker: '', tags: '', collectionId: '', dateFrom: '', dateTo: '' }
 
 const formatTime = seconds => seconds == null ? '' : `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`
@@ -157,7 +160,7 @@ export default function LibraryPage() {
 
         <div className="filter-strip">
           <Filter size={14} />
-          <select value={filters.source} onChange={event => updateFilter('source', event.target.value)}><option value="">All sources</option><option value="meeting">Meetings</option><option value="upload">Uploads</option><option value="dictation">Dictation</option><option value="live">Live</option></select>
+          <select value={filters.source} onChange={event => updateFilter('source', event.target.value)}><option value="">All sources</option><option value="meeting">Meetings</option><option value="upload">Uploads</option><option value="folder">Watch folder</option><option value="api">API</option><option value="extension">Extension</option><option value="desktop">Desktop</option><option value="dictation">Dictation</option><option value="live">Live</option></select>
           <select value={filters.task} onChange={event => updateFilter('task', event.target.value)}><option value="">All tasks</option><option value="transcription">Transcript</option><option value="meeting">Meeting notes</option><option value="summary">Summary</option><option value="interview">Interview</option></select>
           <label><Users size={13} /><input value={filters.speaker} onChange={event => updateFilter('speaker', event.target.value)} placeholder="Speaker" /></label>
           <label><Hash size={13} /><input value={filters.tags} onChange={event => updateFilter('tags', event.target.value)} placeholder="Tags" /></label>
