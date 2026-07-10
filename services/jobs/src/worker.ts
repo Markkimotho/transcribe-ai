@@ -9,6 +9,9 @@ import { whisperTranscribe } from '../../whisper/client/index.ts'
 import { needsLlm, renderPlainTranscript, buildTranscriptContext } from '../../pipeline/src/index.ts'
 import { getLlm } from '../../llm/src/index.ts'
 import { createTranscript } from '../../transcripts/src/index.ts'
+import {
+  applyGlossary, cleanupPunctuation, speakerLabels, summarizeQuality,
+} from '../../transcripts/src/quality.ts'
 import { getBoss, markJob, notifyWebhook, QUEUE_TRANSCRIBE } from './index.ts'
 // @ts-ignore — plain JS prompt library (single source of task prompts)
 import { buildPrompt } from '../../../src/utils/promptBuilder.js'
@@ -40,10 +43,20 @@ export async function processJob(jobId: string, pool: pg.Pool = getPool()): Prom
 
     // 2. Whisper STT
     const sttStartedAt = performance.now()
-    const whisper = await whisperTranscribe(
+    let whisper = await whisperTranscribe(
       audio, blobRow.storage_key.split('/').pop() || 'audio.bin', blobRow.mime_type,
-      { language: input.language },
+      {
+        language: input.language,
+        diarize: input.task === 'diarization' || input.options.speakerLabels === true,
+      },
     )
+    const glossaryTerms = (await pool.query(
+      `SELECT term, replacement FROM glossary_terms WHERE org_id = $1 ORDER BY length(term) DESC`,
+      [job.org_id],
+    )).rows
+    const glossaryResult = applyGlossary(whisper, glossaryTerms)
+    whisper = input.options.polish ? cleanupPunctuation(glossaryResult) : glossaryResult
+    const qualityMeta = summarizeQuality(whisper, glossaryResult.glossaryMatches)
     const runtimeSec = (performance.now() - sttStartedAt) / 1000
     const processingMeta = {
       backend: whisper.backend,
@@ -84,6 +97,8 @@ export async function processJob(jobId: string, pool: pg.Pool = getPool()): Prom
       segments: whisper.segments,
       result,
       audioBlobId: input.audioBlobId,
+      speakerLabels: speakerLabels(whisper.segments),
+      qualityMeta,
     }, pool)
     await pool.query(
       `UPDATE transcripts SET processing_meta = $2::jsonb WHERE id = $1`,

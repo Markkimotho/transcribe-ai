@@ -14,13 +14,13 @@ function ts(seconds: number, sep: ',' | '.'): string {
 
 export function toSRT(segments: WhisperSegment[]): string {
   return segments
-    .map((s, i) => `${i + 1}\n${ts(s.start, ',')} --> ${ts(s.end, ',')}\n${s.text}`)
+    .map((s, i) => `${i + 1}\n${ts(s.start, ',')} --> ${ts(s.end, ',')}\n${s.speaker ? `${s.speaker}: ` : ''}${s.text}`)
     .join('\n\n') + (segments.length ? '\n' : '')
 }
 
 export function toVTT(segments: WhisperSegment[]): string {
   const body = segments
-    .map(s => `${ts(s.start, '.')} --> ${ts(s.end, '.')}\n${s.text}`)
+    .map(s => `${ts(s.start, '.')} --> ${ts(s.end, '.')}\n${s.speaker ? `<v ${s.speaker}>` : ''}${s.text}`)
     .join('\n\n')
   return `WEBVTT\n\n${body}${segments.length ? '\n' : ''}`
 }
@@ -33,7 +33,7 @@ export function toMD(title: string, text: string, segments: WhisperSegment[] | n
     for (const s of segments) {
       const mm = Math.floor(s.start / 60)
       const ss = Math.floor(s.start % 60)
-      lines.push(`**[${pad(mm)}:${pad(ss)}]** ${s.text}`, '')
+      lines.push(`**[${pad(mm)}:${pad(ss)}]** ${s.speaker ? `**${s.speaker}:** ` : ''}${s.text}`, '')
     }
   } else {
     lines.push(text, '')

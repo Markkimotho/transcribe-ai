@@ -12,6 +12,7 @@ import { getPool } from '@semaje/db'
 import {
   RegisterRequest, LoginRequest, CreateTranscriptRequest, ListTranscriptsQuery,
   CreateJobRequest, CreateApiKeyRequest, CreateShareRequest, CreateMeetingBotRunRequest,
+  UpdateTranscriptRequest, RenameSpeakerRequest, GlossaryTermRequest,
 } from '@semaje/schemas'
 import {
   registerUser, loginUser, signAccessToken, signRefreshToken, verifyToken,
@@ -21,6 +22,9 @@ import { getStorage, audioKey } from '../../storage/src/index.ts'
 import {
   createTranscript, listTranscripts, getTranscript, deleteTranscript,
   createShare, getByShareToken, exportTranscript, EXPORT_FORMATS, type ExportFormat,
+  updateTranscript, renameTranscriptSpeaker, listTranscriptRevisions,
+  listGlossary, upsertGlossaryTerm, deleteGlossaryTerm,
+  applyGlossary, cleanupPunctuation, speakerLabels, summarizeQuality,
 } from '../../transcripts/src/index.ts'
 import { enqueueTranscribeJob, getJob } from '../../jobs/src/index.ts'
 import { assertBotTransition, detectMeetingProvider } from '../../meeting-bot/src/index.ts'
@@ -218,11 +222,73 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
     } catch (e) { next(e) }
   })
 
+  app.patch('/api/transcripts/:id', requireAuth(), rateLimit(), validate(UpdateTranscriptRequest), async (req, res, next) => {
+    try {
+      const transcript = await updateTranscript(req.principal!, req.params.id, req.body)
+      if (!transcript) return res.status(404).json({ error: 'Transcript not found' })
+      res.json({ transcript })
+    } catch (e) { next(e) }
+  })
+
+  app.post('/api/transcripts/:id/speakers/:speaker', requireAuth(), rateLimit(), validate(RenameSpeakerRequest), async (req, res, next) => {
+    try {
+      const transcript = await renameTranscriptSpeaker(
+        req.principal!, req.params.id, req.params.speaker, req.body.name,
+      )
+      if (!transcript) return res.status(404).json({ error: 'Transcript not found' })
+      res.json({ transcript })
+    } catch (e) { next(e) }
+  })
+
+  app.get('/api/transcripts/:id/revisions', requireAuth(), rateLimit(), async (req, res, next) => {
+    try {
+      const revisions = await listTranscriptRevisions(req.principal!, req.params.id)
+      if (!revisions) return res.status(404).json({ error: 'Transcript not found' })
+      res.json({ revisions })
+    } catch (e) { next(e) }
+  })
+
+  app.get('/api/transcripts/:id/audio', requireAuth(), rateLimit(), async (req, res, next) => {
+    try {
+      const transcript = await getTranscript(req.principal!, req.params.id)
+      if (!transcript) return res.status(404).json({ error: 'Transcript not found' })
+      if (!transcript.audio_blob_id) return res.status(404).json({ error: 'Source audio is unavailable' })
+      const blob = (await getPool().query(
+        `SELECT storage_key, mime_type, size_bytes FROM audio_blobs WHERE id = $1 AND org_id = $2`,
+        [transcript.audio_blob_id, req.principal!.orgId],
+      )).rows[0]
+      if (!blob) return res.status(404).json({ error: 'Source audio is unavailable' })
+      const audio = await (await getStorage()).get(blob.storage_key)
+      res.setHeader('Content-Type', blob.mime_type)
+      res.setHeader('Content-Length', audio.byteLength)
+      res.send(audio)
+    } catch (e) { next(e) }
+  })
+
   app.delete('/api/transcripts/:id', requireAuth(), rateLimit(), async (req, res, next) => {
     try {
       const gone = await deleteTranscript(req.principal!, req.params.id)
       if (!gone) return res.status(404).json({ error: 'Transcript not found' })
       res.json({ deleted: gone.id })
+    } catch (e) { next(e) }
+  })
+
+  app.get('/api/glossary', requireAuth(), rateLimit(), async (req, res, next) => {
+    try { res.json({ terms: await listGlossary(req.principal!) }) }
+    catch (e) { next(e) }
+  })
+
+  app.post('/api/glossary', requireAuth(), rateLimit(), validate(GlossaryTermRequest), async (req, res, next) => {
+    try {
+      res.status(201).json({ term: await upsertGlossaryTerm(req.principal!, req.body.term, req.body.replacement) })
+    } catch (e) { next(e) }
+  })
+
+  app.delete('/api/glossary/:id', requireAuth(), rateLimit(), async (req, res, next) => {
+    try {
+      const deleted = await deleteGlossaryTerm(req.principal!, req.params.id)
+      if (!deleted) return res.status(404).json({ error: 'Glossary term not found' })
+      res.json({ deleted: deleted.id })
     } catch (e) { next(e) }
   })
 
@@ -381,10 +447,20 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
       let options: Record<string, unknown> = {}
       try { options = JSON.parse(req.body.options || '{}') } catch { /* default */ }
 
-      const whisper = await whisperTranscribe(
+      let whisper = await whisperTranscribe(
         await readFile(filePath!), req.file.originalname || 'audio.bin',
-        req.file.mimetype, { language: req.body.language || undefined },
+        req.file.mimetype, {
+          language: req.body.language || undefined,
+          diarize: task === 'diarization' || options.speakerLabels === true,
+        },
       )
+      const glossaryTerms = (await getPool().query(
+        `SELECT term, replacement FROM glossary_terms WHERE org_id = $1 ORDER BY length(term) DESC`,
+        [req.principal!.orgId],
+      )).rows
+      const glossaryResult = applyGlossary(whisper, glossaryTerms)
+      whisper = options.polish ? cleanupPunctuation(glossaryResult) : glossaryResult
+      const qualityMeta = summarizeQuality(whisper, glossaryResult.glossaryMatches)
 
       let transcript: string
       if (!needsLlm(task, options)) {
@@ -396,7 +472,12 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
         const llm = geminiKey ? new GeminiAdapter(geminiKey) : getLlm()
         transcript = await llm.run(prompt, ctx)
       }
-      res.json({ transcript, whisper: { language: whisper.language, duration: whisper.duration, segments: whisper.segments } })
+      res.json({
+        transcript,
+        whisper: { language: whisper.language, duration: whisper.duration, segments: whisper.segments },
+        qualityMeta,
+        speakerLabels: speakerLabels(whisper.segments),
+      })
     } catch (e: any) {
       res.status(500).json({ error: e.message || 'Transcription failed.' })
     } finally {

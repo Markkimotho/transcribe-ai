@@ -5,6 +5,7 @@ import assert from 'node:assert/strict'
 import { buildListQuery, buildGetQuery, buildDeleteQuery } from '../src/queries.ts'
 import { toSRT, toVTT, toMD, exportTranscript } from '../src/exports.ts'
 import { makeShareToken } from '../src/index.ts'
+import { applyGlossary, cleanupPunctuation, renameSpeakerInSegments, summarizeQuality } from '../src/quality.ts'
 
 const ORG = 'org-1'
 const SEGS = [
@@ -60,6 +61,13 @@ test('exportTranscript maps formats to mime types', () => {
   assert.equal(exportTranscript('md', t).mimeType, 'text/markdown')
 })
 
+test('timed exports preserve speaker labels', () => {
+  const segments = [{ start: 0, end: 1, text: 'hello', speaker: 'Amina' }]
+  assert.match(toSRT(segments), /Amina: hello/)
+  assert.match(toVTT(segments), /<v Amina>hello/)
+  assert.match(toMD('Call', 'hello', segments), /\*\*Amina:\*\*/)
+})
+
 test('share tokens are long, URL-safe, and unique', () => {
   const seen = new Set<string>()
   for (let i = 0; i < 200; i++) {
@@ -68,4 +76,22 @@ test('share tokens are long, URL-safe, and unique', () => {
     assert.ok(!seen.has(tok))
     seen.add(tok)
   }
+})
+
+test('quality helpers apply glossary, cleanup, confidence, and speaker rename', () => {
+  const source = {
+    text: 'sema jay shipped', language: 'en', duration: 2,
+    backend: 'fake', model: 'tiny',
+    segments: [{ start: 0, end: 2, text: 'sema jay shipped', confidence: 0.5, speaker: 'SPEAKER_00' }],
+  }
+  const glossary = applyGlossary(source, [{ term: 'sema jay', replacement: 'semaje' }])
+  assert.equal(glossary.text, 'semaje shipped')
+  assert.equal(glossary.glossaryMatches, 1)
+  const clean = cleanupPunctuation(glossary)
+  assert.equal(clean.text, 'Semaje shipped.')
+  assert.deepEqual(summarizeQuality(clean, 1), {
+    averageConfidence: 0.5, lowConfidenceSegments: 1, timedSegments: 1,
+    diarizationCoverage: 1, glossaryMatches: 1,
+  })
+  assert.equal(renameSpeakerInSegments(clean.segments, 'SPEAKER_00', 'Amina')[0].speaker, 'Amina')
 })

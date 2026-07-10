@@ -18,9 +18,14 @@ const db = {
   transcripts: new Map<string, Record<string, unknown>>(),
   shares: new Map<string, Record<string, unknown>>(),
   botRuns: [] as Record<string, unknown>[],
+  revisions: [] as Record<string, unknown>[],
 }
 const fakePool = {
+  connect() {
+    return Promise.resolve({ ...fakePool, release() {} })
+  },
   query(text: string, values: unknown[] = []) {
+    if (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK') return Promise.resolve({ rows: [] })
     if (text.includes('INSERT INTO transcripts')) {
       const row = {
         id: T_ID, org_id: values[0], owner_id: values[1], title: values[2],
@@ -38,6 +43,23 @@ const fakePool = {
     if (text.includes('FROM transcripts') && text.includes('WHERE org_id = $1')) {
       const rows = [...db.transcripts.values()].filter(r => r.org_id === values[0])
       return Promise.resolve({ rows })
+    }
+    if (text.includes('INSERT INTO transcript_revisions')) {
+      const row = { id: `revision-${db.revisions.length + 1}`, transcript_id: values[0], reason: values[6], created_at: new Date().toISOString() }
+      db.revisions.unshift(row)
+      return Promise.resolve({ rows: [row] })
+    }
+    if (text.includes('SELECT id, reason, created_at FROM transcript_revisions')) {
+      return Promise.resolve({ rows: db.revisions.filter(row => row.transcript_id === values[0]) })
+    }
+    if (text.includes('UPDATE transcripts SET') && text.includes('updated_at = now()')) {
+      const row = db.transcripts.get(`${values[0]}:${values[1]}`)
+      if (!row) return Promise.resolve({ rows: [] })
+      row.title = values[2] || row.title
+      row.text = values[3]
+      row.segments = values[4]
+      row.updated_at = new Date().toISOString()
+      return Promise.resolve({ rows: [row] })
     }
     if (text.includes('INSERT INTO shares')) {
       const row = { id: 'share-1', transcript_id: values[0], token: values[1], permission: values[2], expires_at: values[3] }
@@ -152,6 +174,24 @@ test('create + fetch a transcript with a valid JWT', async () => {
   assert.equal(get.status, 200)
 })
 
+test('manual correction persists and creates a revision entry', async () => {
+  const patch = await fetch(`${base}/api/transcripts/${T_ID}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenA}` },
+    body: JSON.stringify({ text: 'hello corrected library', reason: 'fixed product name' }),
+  })
+  assert.equal(patch.status, 200)
+  const body = await patch.json() as { transcript: { text: string } }
+  assert.equal(body.transcript.text, 'hello corrected library')
+
+  const history = await fetch(`${base}/api/transcripts/${T_ID}/revisions`, {
+    headers: { Authorization: `Bearer ${tokenA}` },
+  })
+  assert.equal(history.status, 200)
+  const historyBody = await history.json() as { revisions: { reason: string }[] }
+  assert.equal(historyBody.revisions[0].reason, 'fixed product name')
+})
+
 test('cross-org access is blocked: org B cannot read org A transcripts', async () => {
   const res = await fetch(`${base}/api/transcripts/${T_ID}`, {
     headers: { Authorization: `Bearer ${tokenB}` },
@@ -176,7 +216,7 @@ test('share flow: create link share, resolve it WITHOUT auth', async () => {
   const pub = await fetch(`${base}/api/share/${share.token}`) // no auth header
   assert.equal(pub.status, 200)
   const body = await pub.json() as { transcript: { text: string } }
-  assert.equal(body.transcript.text, 'hello library')
+  assert.equal(body.transcript.text, 'hello corrected library')
 })
 
 test('garbage token → 401, garbage share token → 404', async () => {

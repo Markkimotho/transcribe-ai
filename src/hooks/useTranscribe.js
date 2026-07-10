@@ -50,16 +50,22 @@ export function useTranscribe() {
 
     // Persist to the library (single-user mode needs no token; authed users
     // carry their JWT via apiClient). Non-fatal if it fails.
+    const text = result.transcript
     try {
       const saved = await saveTranscript({
         title: file.name.replace(/\.[^.]+$/, ''),
         source: 'upload',
         task,
-        text: typeof result === 'string' ? result : result.transcript,
+        text,
+        language: result.whisper?.language,
+        durationSec: result.whisper?.duration,
+        segments: result.whisper?.segments,
+        speakerLabels: result.speakerLabels,
+        qualityMeta: result.qualityMeta,
       })
       setSavedId(saved.id)
     } catch { /* library unavailable — still show the transcript */ }
-    return result
+    return text
   }
 
   const handleFile = async (file) => {

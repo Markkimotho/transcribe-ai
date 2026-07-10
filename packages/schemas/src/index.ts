@@ -24,6 +24,14 @@ export const WhisperSegment = z.object({
   start: z.number(),
   end: z.number(),
   text: z.string(),
+  speaker: z.string().nullable().optional(),
+  confidence: z.number().min(0).max(1).nullable().optional(),
+  words: z.array(z.object({
+    start: z.number(),
+    end: z.number(),
+    word: z.string(),
+    probability: z.number().min(0).max(1).optional(),
+  })).optional(),
 })
 export type WhisperSegment = z.infer<typeof WhisperSegment>
 
@@ -93,8 +101,28 @@ export const CreateTranscriptRequest = z.object({
   segments: z.array(WhisperSegment).optional(),
   result: z.unknown().optional(),
   audioBlobId: z.string().uuid().optional(),
+  speakerLabels: z.record(z.string()).optional(),
+  qualityMeta: z.record(z.unknown()).optional(),
 })
 export type CreateTranscriptRequest = z.infer<typeof CreateTranscriptRequest>
+
+export const UpdateTranscriptRequest = z.object({
+  title: z.string().min(1).max(300).optional(),
+  text: z.string().optional(),
+  segments: z.array(WhisperSegment).optional(),
+  reason: z.string().min(1).max(240).default('manual correction'),
+}).refine(value => value.title !== undefined || value.text !== undefined || value.segments !== undefined, {
+  message: 'At least one editable field is required',
+})
+
+export const RenameSpeakerRequest = z.object({
+  name: z.string().min(1).max(120),
+})
+
+export const GlossaryTermRequest = z.object({
+  term: z.string().min(1).max(120),
+  replacement: z.string().min(1).max(120),
+})
 
 export const ListTranscriptsQuery = z.object({
   q: z.string().max(500).optional(),

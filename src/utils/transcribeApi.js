@@ -19,7 +19,7 @@ export async function transcribeViaProxy(file, { prompt, task, options, language
   const res = await fetch('/api/transcribe', { method: 'POST', headers: authHeaders(), body: formData })
   const data = await res.json()
   if (!res.ok) throw new Error(data.error || `Server error ${res.status}`)
-  return data.transcript
+  return data
 }
 
 // ── Mode 2: Direct (user supplies their own fallback task key) ─
@@ -37,5 +37,5 @@ export async function transcribeDirect(file, { prompt, task, options, language, 
   const res = await fetch('/api/transcribe-direct', { method: 'POST', headers: authHeaders(), body: formData })
   const data = await res.json()
   if (!res.ok) throw new Error(data.error || `Server error ${res.status}`)
-  return data.transcript
+  return data
 }

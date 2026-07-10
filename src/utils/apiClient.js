@@ -92,6 +92,48 @@ export async function deleteTranscript(id) {
   return json(await api(`/api/transcripts/${id}`, { method: 'DELETE' }))
 }
 
+export async function updateTranscript(id, patch) {
+  return (await json(await api(`/api/transcripts/${id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  }))).transcript
+}
+
+export async function renameTranscriptSpeaker(id, speaker, name) {
+  return (await json(await api(`/api/transcripts/${id}/speakers/${encodeURIComponent(speaker)}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  }))).transcript
+}
+
+export async function listTranscriptRevisions(id) {
+  return (await json(await api(`/api/transcripts/${id}/revisions`))).revisions
+}
+
+export async function getTranscriptAudio(id) {
+  const res = await api(`/api/transcripts/${id}/audio`)
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.error || 'Source audio unavailable')
+  }
+  return URL.createObjectURL(await res.blob())
+}
+
+export async function listGlossary() {
+  return (await json(await api('/api/glossary'))).terms
+}
+
+export async function saveGlossaryTerm(term, replacement) {
+  return (await json(await api('/api/glossary', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ term, replacement }),
+  }))).term
+}
+
+export async function removeGlossaryTerm(id) {
+  return json(await api(`/api/glossary/${id}`, { method: 'DELETE' }))
+}
+
 export function exportUrl(id, format) { return `/api/transcripts/${id}/export/${format}` }
 
 export async function createShare(id) {
