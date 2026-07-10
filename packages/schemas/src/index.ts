@@ -103,6 +103,7 @@ export const CreateTranscriptRequest = z.object({
   audioBlobId: z.string().uuid().optional(),
   speakerLabels: z.record(z.string()).optional(),
   qualityMeta: z.record(z.unknown()).optional(),
+  processingMeta: z.record(z.unknown()).optional(),
 })
 export type CreateTranscriptRequest = z.infer<typeof CreateTranscriptRequest>
 
@@ -122,6 +123,20 @@ export const RenameSpeakerRequest = z.object({
 export const GlossaryTermRequest = z.object({
   term: z.string().min(1).max(120),
   replacement: z.string().min(1).max(120),
+})
+
+export const LlmSettingsRequest = z.object({
+  adapter: z.enum(['ollama', 'llama-cpp', 'claude-local']),
+  endpoint: z.string().url().optional(),
+  model: z.string().min(1).max(160),
+  preset: z.object({
+    summary: z.boolean(),
+    decisions: z.boolean(),
+    actionItems: z.boolean(),
+    risks: z.boolean(),
+    followUps: z.boolean(),
+    chapters: z.boolean(),
+  }),
 })
 
 export const ListTranscriptsQuery = z.object({

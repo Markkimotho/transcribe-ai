@@ -62,6 +62,8 @@ export function useTranscribe() {
         segments: result.whisper?.segments,
         speakerLabels: result.speakerLabels,
         qualityMeta: result.qualityMeta,
+        result: result.result,
+        processingMeta: result.processingMeta,
       })
       setSavedId(saved.id)
     } catch { /* library unavailable — still show the transcript */ }

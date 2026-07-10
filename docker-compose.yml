@@ -11,6 +11,7 @@ x-app-env: &app-env
   LLM_ADAPTER: ${LLM_ADAPTER:-ollama}
   OLLAMA_URL: http://ollama:11434
   OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+  LLM_FALLBACKS: ${LLM_FALLBACKS:-llama-cpp,claude-local}
   JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
   WEBHOOK_SECRET: ${WEBHOOK_SECRET:-change-me-webhooks}
   STRICT_LOCAL_MODE: ${STRICT_LOCAL_MODE:-true}
@@ -70,6 +71,25 @@ services:
       interval: 15s
       timeout: 5s
       retries: 20
+
+  ollama-model:
+    image: ollama/ollama:0.9.6
+    profiles: ["local-llm"]
+    restart: "no"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    command: pull ${OLLAMA_MODEL:-qwen2.5:3b}
+
+  llama-cpp:
+    image: ghcr.io/ggerganov/llama.cpp:server
+    profiles: ["llama-cpp"]
+    restart: unless-stopped
+    command: -m /models/${LLAMA_CPP_MODEL_FILE:-model.gguf} --host 0.0.0.0 --port 8081
+    volumes:
+      - llamamodels:/models
 
   migrate:
     build:
@@ -146,3 +166,4 @@ volumes:
   logs:
   whispermodels:
   ollamamodels:
+  llamamodels:

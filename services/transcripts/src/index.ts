@@ -21,8 +21,8 @@ export async function createTranscript(
     || 'Untitled'
   const res = await pool.query(
     `INSERT INTO transcripts
-       (org_id, owner_id, title, source, task, language, duration_sec, text, segments, result, audio_blob_id, speaker_labels, quality_meta)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+       (org_id, owner_id, title, source, task, language, duration_sec, text, segments, result, audio_blob_id, speaker_labels, quality_meta, processing_meta)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
      RETURNING *`,
     [
       principal.orgId, principal.userId, title, req.source, req.task,
@@ -32,6 +32,7 @@ export async function createTranscript(
       req.audioBlobId ?? null,
       JSON.stringify(req.speakerLabels || {}),
       JSON.stringify(req.qualityMeta || {}),
+      JSON.stringify(req.processingMeta || {}),
     ],
   )
   return res.rows[0]

@@ -7,7 +7,9 @@ import { JobInput } from '@semaje/schemas'
 import { getStorage } from '../../storage/src/index.ts'
 import { whisperTranscribe } from '../../whisper/client/index.ts'
 import { needsLlm, renderPlainTranscript, buildTranscriptContext } from '../../pipeline/src/index.ts'
-import { getLlm } from '../../llm/src/index.ts'
+import { runWithFallback } from '../../llm/src/index.ts'
+import { runMeetingWithFallback } from '../../llm/src/structured.ts'
+import { getWorkspaceLlmConfig } from '../../llm/src/settings.ts'
 import { createTranscript } from '../../transcripts/src/index.ts'
 import {
   applyGlossary, cleanupPunctuation, speakerLabels, summarizeQuality,
@@ -58,7 +60,7 @@ export async function processJob(jobId: string, pool: pg.Pool = getPool()): Prom
     whisper = input.options.polish ? cleanupPunctuation(glossaryResult) : glossaryResult
     const qualityMeta = summarizeQuality(whisper, glossaryResult.glossaryMatches)
     const runtimeSec = (performance.now() - sttStartedAt) / 1000
-    const processingMeta = {
+    const processingMeta: Record<string, unknown> = {
       backend: whisper.backend,
       model: whisper.model,
       language: whisper.language,
@@ -78,13 +80,25 @@ export async function processJob(jobId: string, pool: pg.Pool = getPool()): Prom
     if (!needsLlm(input.task, input.options)) {
       text = renderPlainTranscript(whisper, input.options)
     } else {
-      const prompt = buildPrompt(input.task, input.options)
       const ctx = buildTranscriptContext(input.task, whisper)
-      const out = await getLlm().run(prompt, ctx)
-      text = input.task === 'transcription' ? out : whisper.text
-      result = input.task === 'transcription' ? null : out
+      const config = await getWorkspaceLlmConfig(job.org_id, pool)
+      if (input.task === 'meeting') {
+        const enriched = await runMeetingWithFallback(config, ctx, config.preset)
+        text = whisper.text
+        result = enriched.result
+        processingMeta.llm = { ...enriched.meta, fallbackUsed: enriched.fallbackUsed }
+      } else {
+        const prompt = buildPrompt(input.task, input.options)
+        const generated = await runWithFallback(config, prompt, ctx)
+        text = input.task === 'transcription' ? generated.text : whisper.text
+        result = input.task === 'transcription' ? null : generated.text
+        processingMeta.llm = { ...generated.meta, fallbackUsed: generated.fallbackUsed }
+      }
     }
-    await pool.query(`UPDATE jobs SET progress = 90 WHERE id = $1`, [jobId])
+    await pool.query(
+      `UPDATE jobs SET progress = 90, processing_meta = $2::jsonb WHERE id = $1`,
+      [jobId, JSON.stringify(processingMeta)],
+    )
 
     // 4. Persist transcript
     const transcript = await createTranscript(principal, {

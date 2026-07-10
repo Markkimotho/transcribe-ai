@@ -22,13 +22,18 @@ const formatTime = seconds => {
 
 function deriveInsights(transcript) {
   const result = transcript?.result
+  const structured = result && typeof result === 'object' ? result : null
   const resultText = typeof result === 'string' ? result : result ? JSON.stringify(result, null, 2) : ''
   const text = transcript?.text || ''
   const lines = splitLines(resultText || text)
   return {
-    summary: resultText || splitLines(text).slice(0, 5).join('\n\n') || 'No summary is available yet.',
-    actions: lines.filter(line => /action|todo|follow|owner|due|\[ \]/i.test(line)).slice(0, 8),
-    decisions: lines.filter(line => /decision|decided|agreed|approved/i.test(line)).slice(0, 6),
+    summary: structured?.summary || resultText || splitLines(text).slice(0, 5).join('\n\n') || 'No summary is available yet.',
+    actions: structured?.actionItems?.map(item => [item.task, item.owner && `Owner: ${item.owner}`, item.dueDate && `Due: ${item.dueDate}`].filter(Boolean).join(' · '))
+      || lines.filter(line => /action|todo|follow|owner|due|\[ \]/i.test(line)).slice(0, 8),
+    decisions: structured?.decisions || lines.filter(line => /decision|decided|agreed|approved/i.test(line)).slice(0, 6),
+    risks: structured?.risks || [],
+    followUps: structured?.followUps || [],
+    chapters: structured?.chapters || [],
     soundbites: (transcript?.segments || [])
       .filter(segment => segment.text.length > 70)
       .slice(0, 5),
@@ -77,6 +82,7 @@ export default function TranscriptDetailPage() {
     [transcript],
   )
   const quality = transcript?.quality_meta || {}
+  const llmRuntime = transcript?.processing_meta?.llm
 
   const seek = seconds => {
     if (!audioRef.current) return
@@ -251,7 +257,14 @@ export default function TranscriptDetailPage() {
             </>
           )}
 
-          {tab === 'summary' && <div className="notes-sheet"><ReactMarkdown>{insights.summary}</ReactMarkdown></div>}
+          {tab === 'summary' && (
+            <div className="notes-sheet">
+              <ReactMarkdown>{insights.summary}</ReactMarkdown>
+              {!!insights.risks.length && <><h2>Risks</h2>{insights.risks.map((item, index) => <p className="decision-line" key={index}>{item}</p>)}</>}
+              {!!insights.followUps.length && <><h2>Follow-ups</h2>{insights.followUps.map((item, index) => <p className="decision-line" key={index}>{item}</p>)}</>}
+              {!!insights.chapters.length && <><h2>Chapters</h2>{insights.chapters.map((item, index) => <button className="highlight-line" key={index} onClick={() => seek(item.startSec || 0)}><span>{formatTime(item.startSec)}</span><strong>{item.title}</strong></button>)}</>}
+            </div>
+          )}
 
           {tab === 'actions' && (
             <div className="notes-sheet">
@@ -298,6 +311,19 @@ export default function TranscriptDetailPage() {
               <div><dt>Glossary hits</dt><dd>{quality.glossaryMatches || 0}</dd></div>
             </dl>
           </section>
+
+          {llmRuntime && (
+            <section>
+              <p className="inspector-title"><Sparkles size={14} /> Local enrichment</p>
+              <dl className="quality-list">
+                <div><dt>Adapter</dt><dd>{llmRuntime.adapter}</dd></div>
+                <div><dt>Model</dt><dd>{llmRuntime.model}</dd></div>
+                <div><dt>Runtime</dt><dd>{(Number(llmRuntime.runtimeMs || 0) / 1000).toFixed(2)}s</dd></div>
+                <div><dt>Prompt size</dt><dd>{llmRuntime.promptChars || 0} chars</dd></div>
+                <div><dt>Data path</dt><dd>{llmRuntime.local ? 'local' : 'external'}</dd></div>
+              </dl>
+            </section>
+          )}
 
           <section>
             <p className="inspector-title"><UserRound size={14} /> Speakers</p>

@@ -210,6 +210,24 @@ export async function deleteSttModel(backend, model) {
   }))
 }
 
+export async function getLlmSettings() {
+  return (await json(await api('/api/admin/llm'))).config
+}
+
+export async function saveLlmSettings(config) {
+  return (await json(await api('/api/admin/llm', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  }))).config
+}
+
+export async function testLlmSettings(config) {
+  return json(await api('/api/admin/llm/test', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ config }),
+  }))
+}
+
 // ── Meeting bot ─────────────────────────────────────────────
 export async function createMeetingBotRun({ joinUrl, title, startsAt, provider }) {
   return (await json(await api('/api/meeting-bot/runs', {

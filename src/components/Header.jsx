@@ -1,7 +1,7 @@
 import { useContext } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { AppContext } from '../context/AppContext'
-import { Sun, Moon, Server, KeyRound, ArrowLeftRight, Library, LogOut, Home, RadioTower, ListChecks, Settings, CalendarDays, PlugZap, Cpu } from 'lucide-react'
+import { Sun, Moon, Server, KeyRound, ArrowLeftRight, Library, LogOut, Home, RadioTower, ListChecks, Settings, CalendarDays, PlugZap, Cpu, Sparkles } from 'lucide-react'
 
 export default function Header() {
   const { theme, toggleTheme, apiMode, toggleApiMode, user, authRequired, signOut, account, onboarding } = useContext(AppContext)
@@ -44,6 +44,7 @@ export default function Header() {
             {navLink('/settings/api-keys', 'Keys', KeyRound)}
             {navLink('/settings/integrations', 'Integrations', PlugZap)}
             {navLink('/settings/models', 'Models', Cpu)}
+            {navLink('/settings/intelligence', 'AI', Sparkles)}
             {navLink('/settings/platform', 'Platform', Settings)}
             {!onboarding.completed && navLink('/onboarding', 'Setup', ListChecks)}
           </nav>

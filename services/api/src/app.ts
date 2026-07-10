@@ -13,6 +13,7 @@ import {
   RegisterRequest, LoginRequest, CreateTranscriptRequest, ListTranscriptsQuery,
   CreateJobRequest, CreateApiKeyRequest, CreateShareRequest, CreateMeetingBotRunRequest,
   UpdateTranscriptRequest, RenameSpeakerRequest, GlossaryTermRequest,
+  LlmSettingsRequest,
 } from '@semaje/schemas'
 import {
   registerUser, loginUser, signAccessToken, signRefreshToken, verifyToken,
@@ -33,7 +34,11 @@ import {
   whisperActivateModel, whisperDeleteModel,
 } from '../../whisper/client/index.ts'
 import { needsLlm, renderPlainTranscript, buildTranscriptContext } from '../../pipeline/src/index.ts'
-import { getLlm } from '../../llm/src/index.ts'
+import { createLlm, runWithFallback } from '../../llm/src/index.ts'
+import { runMeetingWithFallback } from '../../llm/src/structured.ts'
+import {
+  getWorkspaceLlmConfig, saveWorkspaceLlmConfig, isLocalEndpoint,
+} from '../../llm/src/settings.ts'
 import { GeminiAdapter } from '../../llm/src/adapters/gemini.ts'
 import { requireAuth, rateLimit, validate, errorHandler } from './middleware.ts'
 
@@ -139,6 +144,39 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
     try {
       if (!['owner', 'admin'].includes(req.principal!.role)) return res.status(403).json({ error: 'Admin access required' })
       res.json(await whisperDeleteModel(req.params.backend, req.params.model))
+    } catch (e) { next(e) }
+  })
+
+  // ── Local meeting-intelligence runtime ─────────────────────
+  app.get('/api/admin/llm', requireAuth(), rateLimit(), async (req, res, next) => {
+    try {
+      if (!['owner', 'admin'].includes(req.principal!.role)) return res.status(403).json({ error: 'Admin access required' })
+      res.json({ config: await getWorkspaceLlmConfig(req.principal!.orgId) })
+    } catch (e) { next(e) }
+  })
+
+  app.put('/api/admin/llm', requireAuth(), rateLimit(), validate(LlmSettingsRequest), async (req, res, next) => {
+    try {
+      if (!['owner', 'admin'].includes(req.principal!.role)) return res.status(403).json({ error: 'Admin access required' })
+      if (req.body.endpoint && !isLocalEndpoint(req.body.endpoint)) {
+        return res.status(400).json({ error: 'Local AI endpoints must resolve to localhost, a private network, or a compose service.' })
+      }
+      const saved = await saveWorkspaceLlmConfig(req.principal!.orgId, req.body)
+      res.json({ config: saved.llm_config, updatedAt: saved.updated_at })
+    } catch (e) { next(e) }
+  })
+
+  app.post('/api/admin/llm/test', requireAuth(), rateLimit(), async (req, res, next) => {
+    try {
+      if (!['owner', 'admin'].includes(req.principal!.role)) return res.status(403).json({ error: 'Admin access required' })
+      const parsed = LlmSettingsRequest.safeParse(req.body?.config || await getWorkspaceLlmConfig(req.principal!.orgId))
+      if (!parsed.success) return res.status(400).json({ error: 'Invalid local AI configuration' })
+      if (parsed.data.endpoint && !isLocalEndpoint(parsed.data.endpoint)) {
+        return res.status(400).json({ error: 'Endpoint is not local or private.' })
+      }
+      const adapter = createLlm(parsed.data.adapter, parsed.data)
+      const output = await adapter.run('Reply with exactly: local intelligence ready', 'SYSTEM CHECK')
+      res.json({ ok: true, output, runtime: adapter.lastRun })
     } catch (e) { next(e) }
   })
 
@@ -463,20 +501,41 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
       const qualityMeta = summarizeQuality(whisper, glossaryResult.glossaryMatches)
 
       let transcript: string
+      let enrichedResult: unknown = null
+      let llmMeta: unknown = null
       if (!needsLlm(task, options)) {
         transcript = renderPlainTranscript(whisper, options)
       } else {
-        const prompt = String(req.body.prompt || '')
-        if (!prompt) return res.status(400).json({ error: 'No task prompt provided.' })
         const ctx = buildTranscriptContext(task, whisper)
-        const llm = geminiKey ? new GeminiAdapter(geminiKey) : getLlm()
-        transcript = await llm.run(prompt, ctx)
+        if (geminiKey) {
+          const prompt = String(req.body.prompt || '')
+          if (!prompt) return res.status(400).json({ error: 'No task prompt provided.' })
+          const llm = new GeminiAdapter(geminiKey)
+          transcript = await llm.run(prompt, ctx)
+        } else {
+          const config = await getWorkspaceLlmConfig(req.principal!.orgId)
+          if (task === 'meeting') {
+            const enriched = await runMeetingWithFallback(config, ctx, config.preset)
+            transcript = whisper.text
+            enrichedResult = enriched.result
+            llmMeta = { ...enriched.meta, fallbackUsed: enriched.fallbackUsed }
+          } else {
+            const prompt = String(req.body.prompt || '')
+            if (!prompt) return res.status(400).json({ error: 'No task prompt provided.' })
+            const generated = await runWithFallback(config, prompt, ctx)
+            transcript = generated.text
+            enrichedResult = task === 'transcription' ? null : generated.text
+            llmMeta = { ...generated.meta, fallbackUsed: generated.fallbackUsed }
+          }
+        }
       }
       res.json({
         transcript,
         whisper: { language: whisper.language, duration: whisper.duration, segments: whisper.segments },
         qualityMeta,
         speakerLabels: speakerLabels(whisper.segments),
+        result: enrichedResult,
+        processingMeta: llmMeta ? { llm: llmMeta } : {},
       })
     } catch (e: any) {
       res.status(500).json({ error: e.message || 'Transcription failed.' })

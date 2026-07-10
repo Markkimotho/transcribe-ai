@@ -82,6 +82,9 @@ point it at your server, dictate with `Cmd/Ctrl+Shift+1`.
 `LLM_ADAPTER=ollama` (default) calls the Ollama service on your own machine.
 `LLM_ADAPTER=claude-local` shells out to a locally installed Claude Code CLI.
 `LLM_ADAPTER=gemini` is an opt-in cloud adapter and requires `GEMINI_API_KEY`.
+The local deployment profile pulls `OLLAMA_MODEL` automatically. A llama.cpp
+OpenAI-compatible server is also supported: place a GGUF file in the
+`llamamodels` volume and run compose with `--profile llama-cpp`.
 
 ## Upgrades
 

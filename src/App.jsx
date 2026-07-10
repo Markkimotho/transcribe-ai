@@ -19,6 +19,7 @@ import SharePage from './components/library/SharePage'
 import ApiKeysPage from './components/settings/ApiKeysPage'
 import PlatformSettingsPage from './components/settings/PlatformSettingsPage'
 import ModelManagerPage from './components/settings/ModelManagerPage'
+import IntelligenceSettingsPage from './components/settings/IntelligenceSettingsPage'
 import IntegrationsPage from './components/settings/IntegrationsPage'
 import MeetingsPage from './components/meetings/MeetingsPage'
 import OnboardingPage from './components/onboarding/OnboardingPage'
@@ -207,6 +208,7 @@ export default function App() {
           <Route path="/settings/api-keys" element={<Shell><RequireAuth><RequireOnboarding><ApiKeysPage /></RequireOnboarding></RequireAuth></Shell>} />
           <Route path="/settings/platform" element={<Shell><RequireAuth><RequireOnboarding><PlatformSettingsPage /></RequireOnboarding></RequireAuth></Shell>} />
           <Route path="/settings/models" element={<Shell><RequireAuth><RequireOnboarding><ModelManagerPage /></RequireOnboarding></RequireAuth></Shell>} />
+          <Route path="/settings/intelligence" element={<Shell><RequireAuth><RequireOnboarding><IntelligenceSettingsPage /></RequireOnboarding></RequireAuth></Shell>} />
           <Route path="/settings/integrations" element={<Shell><RequireAuth><RequireOnboarding><IntegrationsPage /></RequireOnboarding></RequireAuth></Shell>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
