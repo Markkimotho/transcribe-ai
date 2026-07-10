@@ -11,6 +11,7 @@ import { runWithFallback } from '../../llm/src/index.ts'
 import { runMeetingWithFallback } from '../../llm/src/structured.ts'
 import { getWorkspaceLlmConfig } from '../../llm/src/settings.ts'
 import { indexTranscriptEmbedding } from '../../search/src/index.ts'
+import { emitIntegrationEvent } from '../../integrations/src/index.ts'
 import { createTranscript } from '../../transcripts/src/index.ts'
 import {
   applyGlossary, cleanupPunctuation, speakerLabels, summarizeQuality,
@@ -27,12 +28,13 @@ export async function processJob(jobId: string, pool: pg.Pool = getPool()): Prom
   const running = await markJob(jobId, 'queued', 'running', {}, pool)
   if (!running) return
 
+  const principal = {
+    userId: job.owner_id, orgId: job.org_id,
+    role: 'owner' as const, scopes: [], via: 'jwt' as const,
+  }
+
   try {
     const input = JobInput.parse(job.input)
-    const principal = {
-      userId: job.owner_id, orgId: job.org_id,
-      role: 'owner' as const, scopes: [], via: 'jwt' as const,
-    }
 
     // 1. Fetch audio from storage
     const blobRow = (await pool.query(
@@ -137,11 +139,29 @@ export async function processJob(jobId: string, pool: pg.Pool = getPool()): Prom
 
     const done = await markJob(jobId, 'running', 'succeeded',
       { transcript_id: transcript.id, progress: 100 }, pool)
-    if (done) await notifyWebhook(done)
+    if (done) {
+      await notifyWebhook(done)
+      try {
+        await emitIntegrationEvent(principal, 'job.succeeded', {
+          jobId: done.id, transcriptId: transcript.id, title: transcript.title,
+        }, pool)
+      } catch (error: any) {
+        console.warn(`[worker] integration event skipped for ${jobId}: ${error.message}`)
+      }
+    }
   } catch (e: any) {
     console.error(`[worker] job ${jobId} failed:`, e.message)
     const failed = await markJob(jobId, 'running', 'failed', { error: e.message }, pool)
-    if (failed) await notifyWebhook(failed)
+    if (failed) {
+      await notifyWebhook(failed)
+      try {
+        await emitIntegrationEvent(principal, 'job.failed', {
+          jobId: failed.id, transcriptId: failed.transcript_id, error: failed.error,
+        }, pool)
+      } catch (error: any) {
+        console.warn(`[worker] failed-event delivery skipped for ${jobId}: ${error.message}`)
+      }
+    }
   }
 }
 

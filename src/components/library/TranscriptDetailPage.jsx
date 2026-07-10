@@ -3,11 +3,12 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   AlertTriangle, ArrowLeft, BookMarked, Check, CheckCircle2, ClipboardList,
   Clock3, Copy, Download, FileClock, Gauge, Highlighter, Link2, MessageSquareText,
-  PencilLine, Play, Plus, Save, Sparkles, Trash2, UserRound, X,
+  PencilLine, Play, Plus, Save, Send, Sparkles, Trash2, UserRound, X,
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import {
   createShare, deleteTranscript, exportUrl, getTranscript, getTranscriptAudio,
+  createActionItem, deliverTranscript, getIntegrations,
   listGlossary, listTranscriptRevisions, removeGlossaryTerm, renameTranscriptSpeaker,
   saveGlossaryTerm, updateTranscript,
 } from '../../utils/apiClient'
@@ -50,6 +51,7 @@ export default function TranscriptDetailPage() {
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
   const [shareUrl, setShareUrl] = useState('')
+  const [shareDays, setShareDays] = useState('7')
   const [audioUrl, setAudioUrl] = useState('')
   const [editing, setEditing] = useState(false)
   const [draftText, setDraftText] = useState('')
@@ -60,6 +62,14 @@ export default function TranscriptDetailPage() {
   const [term, setTerm] = useState('')
   const [replacement, setReplacement] = useState('')
   const [speakerDrafts, setSpeakerDrafts] = useState({})
+  const [integrations, setIntegrations] = useState(null)
+  const [deliveryAdapter, setDeliveryAdapter] = useState('local')
+  const [deliveryFormat, setDeliveryFormat] = useState('md')
+  const [recipient, setRecipient] = useState('')
+  const [deliveryMessage, setDeliveryMessage] = useState('')
+  const [actionTask, setActionTask] = useState('')
+  const [actionOwner, setActionOwner] = useState('')
+  const [actionDue, setActionDue] = useState('')
 
   const load = async () => {
     const next = await getTranscript(id)
@@ -72,6 +82,11 @@ export default function TranscriptDetailPage() {
     load().catch(err => setError(err.message))
     listTranscriptRevisions(id).then(setRevisions).catch(() => {})
     listGlossary().then(setGlossary).catch(() => {})
+    getIntegrations().then(next => {
+      setIntegrations(next)
+      const first = Object.entries(next.adapters || {}).find(([, active]) => active)?.[0]
+      if (first) setDeliveryAdapter(first)
+    }).catch(() => {})
     let objectUrl = ''
     getTranscriptAudio(id).then(url => { objectUrl = url; setAudioUrl(url) }).catch(() => {})
     return () => { if (objectUrl) URL.revokeObjectURL(objectUrl) }
@@ -109,10 +124,34 @@ export default function TranscriptDetailPage() {
   }
 
   const share = async () => {
-    const value = await createShare(id)
+    const value = await createShare(id, shareDays ? Number(shareDays) : undefined)
     const url = `${window.location.origin}/share/${value.token}`
     await navigator.clipboard.writeText(url)
     setShareUrl(url)
+  }
+
+  const deliver = async () => {
+    setError(''); setDeliveryMessage('')
+    try {
+      const delivery = await deliverTranscript(id, {
+        adapter: deliveryAdapter, format: deliveryFormat,
+        recipient: deliveryAdapter === 'email' ? recipient : undefined,
+      })
+      setDeliveryMessage(`Sent to ${delivery.destination}`)
+    } catch (err) { setError(err.message) }
+  }
+
+  const addAction = async event => {
+    event.preventDefault()
+    if (!actionTask.trim()) return
+    try {
+      const next = await createActionItem(id, {
+        task: actionTask.trim(), owner: actionOwner.trim() || undefined,
+        dueDate: actionDue || undefined,
+      })
+      setTranscript(next.transcript)
+      setActionTask(''); setActionOwner(''); setActionDue('')
+    } catch (err) { setError(err.message) }
   }
 
   const remove = async () => {
@@ -195,9 +234,12 @@ export default function TranscriptDetailPage() {
         </div>
         <div className="masthead-actions">
           <button className="icon-button p-2.5" onClick={copy} title="Copy transcript">{copied ? <Check size={16} /> : <Copy size={16} />}</button>
-          <button className="icon-button p-2.5" onClick={share} title="Create share link"><Link2 size={16} /></button>
+          {integrations?.sharing?.enabled !== false && <div className="share-control">
+            <select value={shareDays} onChange={event => setShareDays(event.target.value)} title="Share expiration"><option value="1">1d</option><option value="7">7d</option><option value="30">30d</option><option value="">No expiry</option></select>
+            <button className="icon-button p-2.5" onClick={share} title="Create share link"><Link2 size={16} /></button>
+          </div>}
           <div className="export-menu">
-            {['txt', 'md', 'srt', 'vtt'].map(format => (
+            {['txt', 'md', 'json', 'actions.csv', 'srt', 'vtt'].map(format => (
               <a key={format} href={exportUrl(id, format)} download title={`Export ${format.toUpperCase()}`}>{format}</a>
             ))}
           </div>
@@ -205,6 +247,18 @@ export default function TranscriptDetailPage() {
         </div>
         {audioUrl && <audio ref={audioRef} src={audioUrl} controls className="review-audio" />}
         {shareUrl && <div className="share-confirm"><CheckCircle2 size={14} /> Link copied</div>}
+        {!!Object.values(integrations?.adapters || {}).some(Boolean) && (
+          <div className="delivery-control">
+            <Send size={14} />
+            <select value={deliveryAdapter} onChange={event => setDeliveryAdapter(event.target.value)}>
+              {Object.entries(integrations.adapters).filter(([, active]) => active).map(([key]) => <option key={key} value={key}>{key}</option>)}
+            </select>
+            <select value={deliveryFormat} onChange={event => setDeliveryFormat(event.target.value)}><option value="md">notes</option><option value="json">JSON</option><option value="actions.csv">actions</option></select>
+            {deliveryAdapter === 'email' && <input type="email" value={recipient} onChange={event => setRecipient(event.target.value)} placeholder="Recipient" />}
+            <button onClick={deliver}>Send</button>
+            {deliveryMessage && <span>{deliveryMessage}</span>}
+          </div>
+        )}
       </header>
 
       {error && <div className="error-banner mt-4">{error}</div>}
@@ -281,6 +335,12 @@ export default function TranscriptDetailPage() {
           {tab === 'actions' && (
             <div className="notes-sheet">
               <h2>Action items</h2>
+              <form className="action-compose" onSubmit={addAction}>
+                <input value={actionTask} onChange={event => setActionTask(event.target.value)} placeholder="New action item" />
+                <input value={actionOwner} onChange={event => setActionOwner(event.target.value)} placeholder="Owner" />
+                <input type="date" value={actionDue} onChange={event => setActionDue(event.target.value)} />
+                <button title="Add action item"><Plus size={14} /></button>
+              </form>
               {(insights.actions.length ? insights.actions : ['No explicit action items detected.']).map((item, index) => (
                 <label className="action-line" key={index}><input type="checkbox" /><span>{item.replace(/^[-*]\s*/, '')}</span></label>
               ))}

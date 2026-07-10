@@ -219,6 +219,32 @@ test('share flow: create link share, resolve it WITHOUT auth', async () => {
   assert.equal(body.transcript.text, 'hello corrected library')
 })
 
+test('strict deployment mode disables public share resolution globally', async () => {
+  const previous = process.env.SHARING_ENABLED
+  process.env.SHARING_ENABLED = 'false'
+  try {
+    const res = await fetch(`${base}/api/share/any-token`)
+    assert.equal(res.status, 404)
+    const body = await res.json() as { error: string }
+    assert.match(body.error, /disabled/i)
+  } finally {
+    if (previous == null) delete process.env.SHARING_ENABLED
+    else process.env.SHARING_ENABLED = previous
+  }
+})
+
+test('integration status is credential-free and starts with empty routes', async () => {
+  const res = await fetch(`${base}/api/integrations`, {
+    headers: { Authorization: `Bearer ${tokenA}` },
+  })
+  assert.equal(res.status, 200)
+  const body = await res.json() as { adapters: Record<string, boolean>; webhooks: unknown[]; deliveries: unknown[] }
+  assert.ok(Object.hasOwn(body.adapters, 'local'))
+  assert.deepEqual(body.webhooks, [])
+  assert.deepEqual(body.deliveries, [])
+  assert.equal(JSON.stringify(body).includes('PASSWORD'), false)
+})
+
 test('garbage token → 401, garbage share token → 404', async () => {
   const bad = await fetch(`${base}/api/transcripts`, {
     headers: { Authorization: 'Bearer not-a-jwt' },

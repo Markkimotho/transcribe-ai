@@ -113,6 +113,25 @@ For lightweight local microphone or system-audio capture, install ffmpeg and run
 `npm run desktop -- --list-devices`, then `npm run desktop -- --input <device>`. The helper submits
 the resulting mono WAV through the same ingest endpoint and does not require Electron.
 
+## Exports, sharing, and routing
+
+Transcript downloads include TXT, Markdown, JSON, SRT, VTT, and action-item CSV. Markdown and JSON
+preserve source metadata, speakers, timestamps, summaries, decisions, risks, and action items.
+
+Outbound integrations are disabled until configured. Set `INTEGRATION_FILE_SYNC_DIR` for local file
+sync, Nextcloud WebDAV variables for a private cloud folder, Slack or Teams webhook URLs for channel
+delivery, or `SMTP_URL` for email. The Routing board reports only enabled/disabled state and never
+returns credential values to the browser.
+
+Set `SHARING_ENABLED=false` to remove share-link creation and resolution for strict deployments.
+`SHARE_LOCAL_ONLY=true` restricts shared links to loopback and RFC1918 clients. If semaje runs behind
+a trusted reverse proxy, set `TRUST_PROXY_HOPS` to its hop count; the bundled Nginx/Compose profile
+uses one hop.
+
+Custom webhooks subscribe to job, transcript, and action-item events. Each body is signed in
+`X-Semaje-Signature` with `WEBHOOK_SECRET`; see `services/integrations/contract.md` for verification
+and retry behavior.
+
 ## Upgrades
 
 1. Back up Postgres and the `blobdata` volume.
@@ -148,6 +167,7 @@ services/transcripts/   library: CRUD, FTS search, shares, SRT/VTT/TXT/MD export
 services/jobs/          pg-boss queue + transcription worker
 services/ingest/        watched-folder intake through the shared ingest API
 services/desktop/       optional ffmpeg microphone/system-audio capture helper
+services/integrations/  default-off outbound adapters, signed events, delivery ledger
 services/realtime/      WebSocket streaming STT (/ws)
 services/llm/           claude-local | gemini adapters + task evals
 services/pipeline/      pure Whisper↔LLM routing

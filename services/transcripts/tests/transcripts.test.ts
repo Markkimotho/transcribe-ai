@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { buildListQuery, buildGetQuery, buildDeleteQuery } from '../src/queries.ts'
-import { toSRT, toVTT, toMD, exportTranscript } from '../src/exports.ts'
+import { toSRT, toVTT, toMD, toJSON, toActionsCSV, exportTranscript } from '../src/exports.ts'
 import { makeShareToken } from '../src/index.ts'
 import { applyGlossary, cleanupPunctuation, renameSpeakerInSegments, summarizeQuality } from '../src/quality.ts'
 
@@ -59,6 +59,31 @@ test('exportTranscript maps formats to mime types', () => {
   assert.equal(exportTranscript('vtt', t).mimeType, 'text/vtt')
   assert.equal(exportTranscript('txt', t).body, 'plain')
   assert.equal(exportTranscript('md', t).mimeType, 'text/markdown')
+  assert.equal(exportTranscript('json', t).mimeType, 'application/json')
+  assert.equal(exportTranscript('actions.csv', t).extension, 'actions.csv')
+})
+
+test('workflow exports preserve metadata and structured meeting intelligence', () => {
+  const transcript = {
+    id: 't-1', title: 'Planning', text: 'We agreed to ship.', segments: SEGS,
+    source: 'meeting', task: 'meeting', language: 'en', durationSec: 6,
+    createdAt: '2026-07-10T00:00:00.000Z', speakerLabels: { SPEAKER_00: 'Amina' },
+    tags: ['launch'],
+    result: {
+      summary: 'Launch planning.', decisions: ['Ship Friday'], risks: ['Capacity'],
+      actionItems: [{ task: 'Publish notes', owner: 'Amina', dueDate: '2026-07-11' }],
+    },
+  }
+  const json = JSON.parse(toJSON(transcript))
+  assert.equal(json.metadata.source, 'meeting')
+  assert.equal(json.intelligence.decisions[0], 'Ship Friday')
+  assert.equal(json.intelligence.actionItems[0].owner, 'Amina')
+  const md = exportTranscript('md', transcript).body
+  assert.match(md, /## Summary[\s\S]*Launch planning/)
+  assert.match(md, /## Decisions[\s\S]*Ship Friday/)
+  assert.match(md, /## Action items[\s\S]*Publish notes/)
+  const csv = toActionsCSV(transcript)
+  assert.match(csv, /"Publish notes","Amina","2026-07-11","open"/)
 })
 
 test('timed exports preserve speaker labels', () => {

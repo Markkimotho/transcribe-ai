@@ -237,6 +237,30 @@ export const CreateShareRequest = z.object({
   expiresInDays: z.number().int().min(1).max(365).optional(),
 })
 
+export const IntegrationEvent = z.enum([
+  'job.succeeded', 'job.failed', 'transcript.updated', 'action.created',
+])
+export type IntegrationEvent = z.infer<typeof IntegrationEvent>
+
+export const WebhookRequest = z.object({
+  name: z.string().min(1).max(120),
+  url: z.string().url(),
+  events: z.array(IntegrationEvent).min(1).max(4),
+})
+
+export const DeliverTranscriptRequest = z.object({
+  adapter: z.enum(['local', 'nextcloud', 'slack', 'teams', 'email']),
+  format: z.enum(['md', 'json', 'actions.csv']).default('md'),
+  recipient: z.string().email().optional(),
+})
+
+export const ActionItemRequest = z.object({
+  task: z.string().min(1).max(500),
+  owner: z.string().max(200).optional(),
+  dueDate: z.string().max(40).optional(),
+  status: z.enum(['open', 'done']).default('open'),
+})
+
 export const MeetingProvider = z.enum(['zoom', 'meet', 'teams'])
 export const CreateMeetingBotRunRequest = z.object({
   joinUrl: z.string().url(),

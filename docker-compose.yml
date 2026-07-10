@@ -15,12 +15,24 @@ x-app-env: &app-env
   JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
   WEBHOOK_SECRET: ${WEBHOOK_SECRET:-change-me-webhooks}
   STRICT_LOCAL_MODE: ${STRICT_LOCAL_MODE:-true}
+  SHARING_ENABLED: ${SHARING_ENABLED:-true}
+  SHARE_LOCAL_ONLY: ${SHARE_LOCAL_ONLY:-false}
+  TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
+  INTEGRATION_FILE_SYNC_DIR: ${INTEGRATION_FILE_SYNC_DIR:-/data/integrations}
+  NEXTCLOUD_WEBDAV_URL: ${NEXTCLOUD_WEBDAV_URL:-}
+  NEXTCLOUD_USERNAME: ${NEXTCLOUD_USERNAME:-}
+  NEXTCLOUD_PASSWORD: ${NEXTCLOUD_PASSWORD:-}
+  SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+  TEAMS_WEBHOOK_URL: ${TEAMS_WEBHOOK_URL:-}
+  SMTP_URL: ${SMTP_URL:-}
+  SMTP_FROM: ${SMTP_FROM:-semaje@localhost}
   SERVE_FRONTEND: "false"
 
 x-app-volumes: &app-volumes
   - blobdata:/data/blobs
   - exports:/data/exports
   - logs:/data/logs
+  - integrationdata:/data/integrations
 
 services:
   postgres:
@@ -186,3 +198,4 @@ volumes:
   whispermodels:
   ollamamodels:
   llamamodels:
+  integrationdata:

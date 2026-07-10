@@ -187,10 +187,40 @@ export async function removeGlossaryTerm(id) {
 
 export function exportUrl(id, format) { return `/api/transcripts/${id}/export/${format}` }
 
-export async function createShare(id) {
+export async function createShare(id, expiresInDays) {
   return (await json(await api(`/api/transcripts/${id}/shares`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(expiresInDays ? { expiresInDays } : {}),
   }))).share
+}
+
+export async function getIntegrations() {
+  return json(await api('/api/integrations'))
+}
+
+export async function createWebhook(payload) {
+  return (await json(await api('/api/integrations/webhooks', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }))).webhook
+}
+
+export async function deleteWebhook(id) {
+  return json(await api(`/api/integrations/webhooks/${id}`, { method: 'DELETE' }))
+}
+
+export async function deliverTranscript(id, payload) {
+  return (await json(await api(`/api/transcripts/${id}/deliver`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }))).delivery
+}
+
+export async function createActionItem(id, payload) {
+  return json(await api(`/api/transcripts/${id}/actions`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }))
 }
 
 export async function getShared(token) {

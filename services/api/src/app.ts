@@ -6,7 +6,7 @@
 import express, { type Express } from 'express'
 import cors from 'cors'
 import multer from 'multer'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { readFile, unlink } from 'node:fs/promises'
 import { getPool } from '@semaje/db'
 import {
@@ -15,7 +15,7 @@ import {
   UpdateTranscriptRequest, RenameSpeakerRequest, GlossaryTermRequest,
   LlmSettingsRequest,
   KnowledgeSearchQuery, CollectionRequest, SavedSearchRequest, AskKnowledgeRequest,
-  IngestRequest, type Principal,
+  IngestRequest, WebhookRequest, DeliverTranscriptRequest, ActionItemRequest, type Principal,
 } from '@semaje/schemas'
 import {
   registerUser, loginUser, signAccessToken, signRefreshToken, verifyToken,
@@ -45,11 +45,31 @@ import {
   keywordSearch, semanticSearch, indexTranscriptEmbedding, locateTimestamp,
 } from '../../search/src/index.ts'
 import { GeminiAdapter } from '../../llm/src/adapters/gemini.ts'
+import {
+  deliverTranscript, emitIntegrationEvent, integrationStatus,
+} from '../../integrations/src/index.ts'
 import { requireAuth, requireScope, rateLimit, validate, errorHandler } from './middleware.ts'
+
+function isLocalRequest(ip = '') {
+  const value = ip.replace(/^::ffff:/, '')
+  return value === '::1' || value === '127.0.0.1' || value.startsWith('10.')
+    || value.startsWith('192.168.') || /^172\.(1[6-9]|2\d|3[01])\./.test(value)
+}
+
+function exportableTranscript(t: any) {
+  return {
+    id: t.id, title: t.title, text: t.text, segments: t.segments,
+    source: t.source, task: t.task, language: t.language,
+    durationSec: t.duration_sec, createdAt: t.created_at, result: t.result,
+    speakerLabels: t.speaker_labels, tags: t.tags,
+  }
+}
 
 export function createApp(opts: { enableJobs?: boolean } = {}): Express {
   const app = express()
   const enableJobs = opts.enableJobs !== false
+  const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS || 0)
+  if (trustProxyHops > 0) app.set('trust proxy', trustProxyHops)
 
   app.use(cors({
     origin: (process.env.CORS_ORIGINS
@@ -344,6 +364,9 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
     try {
       const transcript = await updateTranscript(req.principal!, req.params.id, req.body)
       if (!transcript) return res.status(404).json({ error: 'Transcript not found' })
+      await emitIntegrationEvent(req.principal!, 'transcript.updated', {
+        transcriptId: transcript.id, title: transcript.title, fields: Object.keys(req.body),
+      })
       res.json({ transcript })
     } catch (e) { next(e) }
   })
@@ -388,6 +411,25 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
       const gone = await deleteTranscript(req.principal!, req.params.id)
       if (!gone) return res.status(404).json({ error: 'Transcript not found' })
       res.json({ deleted: gone.id })
+    } catch (e) { next(e) }
+  })
+
+  app.post('/api/transcripts/:id/actions', requireAuth(), rateLimit(), validate(ActionItemRequest), async (req, res, next) => {
+    try {
+      const t = await getTranscript(req.principal!, req.params.id)
+      if (!t) return res.status(404).json({ error: 'Transcript not found' })
+      const result = t.result && typeof t.result === 'object' && !Array.isArray(t.result) ? t.result : {}
+      const actionItems = Array.isArray(result.actionItems) ? result.actionItems : []
+      const action = { ...req.body, id: randomUUID(), createdAt: new Date().toISOString() }
+      const updated = (await getPool().query(
+        `UPDATE transcripts SET result = $3::jsonb, updated_at = now()
+         WHERE org_id = $1 AND id = $2 RETURNING *`,
+        [req.principal!.orgId, req.params.id, JSON.stringify({ ...result, actionItems: [...actionItems, action] })],
+      )).rows[0]
+      await emitIntegrationEvent(req.principal!, 'action.created', {
+        transcriptId: updated.id, title: updated.title, action,
+      })
+      res.status(201).json({ action, transcript: updated })
     } catch (e) { next(e) }
   })
 
@@ -555,16 +597,72 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
       if (!EXPORT_FORMATS.includes(format)) return res.status(400).json({ error: `format must be one of ${EXPORT_FORMATS.join(', ')}` })
       const t = await getTranscript(req.principal!, req.params.id)
       if (!t) return res.status(404).json({ error: 'Transcript not found' })
-      const { body, mimeType } = exportTranscript(format, { title: t.title, text: t.text, segments: t.segments })
+      const { body, mimeType, extension } = exportTranscript(format, exportableTranscript(t))
       res.setHeader('Content-Type', mimeType)
-      res.setHeader('Content-Disposition', `attachment; filename="${t.title.replace(/[^\w.-]+/g, '_').slice(0, 60)}.${format}"`)
+      res.setHeader('Content-Disposition', `attachment; filename="${t.title.replace(/[^\w.-]+/g, '_').slice(0, 60)}.${extension}"`)
       res.send(body)
+    } catch (e) { next(e) }
+  })
+
+  // ── Integration routing ───────────────────────────────────
+  app.get('/api/integrations', requireAuth(), rateLimit(), async (req, res, next) => {
+    try {
+      const [webhooks, deliveries] = await Promise.all([
+        getPool().query(
+          `SELECT id, name, url, events, disabled_at, created_at FROM webhooks
+           WHERE org_id = $1 ORDER BY created_at DESC`, [req.principal!.orgId],
+        ),
+        getPool().query(
+          `SELECT id, transcript_id, event, adapter, destination, status, error, created_at
+           FROM integration_deliveries WHERE org_id = $1 ORDER BY created_at DESC LIMIT 30`,
+          [req.principal!.orgId],
+        ),
+      ])
+      res.json({ ...integrationStatus(), webhooks: webhooks.rows, deliveries: deliveries.rows })
+    } catch (e) { next(e) }
+  })
+
+  app.post('/api/integrations/webhooks', requireAuth(), rateLimit(), validate(WebhookRequest), async (req, res, next) => {
+    try {
+      if (!['owner', 'admin'].includes(req.principal!.role)) return res.status(403).json({ error: 'Admin access required' })
+      const hash = createHash('sha256').update(process.env.WEBHOOK_SECRET || 'change-me-webhooks').digest('hex')
+      const row = await getPool().query(
+        `INSERT INTO webhooks (org_id, name, url, secret_hash, events)
+         VALUES ($1,$2,$3,$4,$5) RETURNING id, name, url, events, created_at`,
+        [req.principal!.orgId, req.body.name, req.body.url, hash, req.body.events],
+      )
+      res.status(201).json({ webhook: row.rows[0] })
+    } catch (e) { next(e) }
+  })
+
+  app.delete('/api/integrations/webhooks/:id', requireAuth(), rateLimit(), async (req, res, next) => {
+    try {
+      if (!['owner', 'admin'].includes(req.principal!.role)) return res.status(403).json({ error: 'Admin access required' })
+      const row = await getPool().query(
+        `DELETE FROM webhooks WHERE org_id = $1 AND id = $2 RETURNING id`,
+        [req.principal!.orgId, req.params.id],
+      )
+      if (!row.rows[0]) return res.status(404).json({ error: 'Webhook not found' })
+      res.json({ deleted: row.rows[0].id })
+    } catch (e) { next(e) }
+  })
+
+  app.post('/api/transcripts/:id/deliver', requireAuth(), rateLimit(), validate(DeliverTranscriptRequest), async (req, res, next) => {
+    try {
+      const transcript = await getTranscript(req.principal!, req.params.id)
+      if (!transcript) return res.status(404).json({ error: 'Transcript not found' })
+      const delivery = await deliverTranscript(
+        req.principal!, exportableTranscript(transcript), req.body.adapter,
+        req.body.format, req.body.recipient,
+      )
+      res.status(202).json({ delivery })
     } catch (e) { next(e) }
   })
 
   // ── Shares ─────────────────────────────────────────────────
   app.post('/api/transcripts/:id/shares', requireAuth(), rateLimit(), validate(CreateShareRequest), async (req, res, next) => {
     try {
+      if (process.env.SHARING_ENABLED === 'false') return res.status(403).json({ error: 'Share links are disabled for this deployment.' })
       const share = await createShare(req.principal!, req.params.id, req.body)
       if (!share) return res.status(404).json({ error: 'Transcript not found' })
       res.status(201).json({ share })
@@ -573,6 +671,10 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
 
   app.get('/api/share/:token', async (req, res, next) => {
     try {
+      if (process.env.SHARING_ENABLED === 'false') return res.status(404).json({ error: 'Share links are disabled.' })
+      if (process.env.SHARE_LOCAL_ONLY === 'true' && !isLocalRequest(req.ip)) {
+        return res.status(403).json({ error: 'This share is only available on the local network.' })
+      }
       const t = await getByShareToken(req.params.token)
       if (!t) return res.status(404).json({ error: 'Share not found or expired' })
       res.json({ transcript: t })
