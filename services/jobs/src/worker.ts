@@ -10,6 +10,7 @@ import { needsLlm, renderPlainTranscript, buildTranscriptContext } from '../../p
 import { runWithFallback } from '../../llm/src/index.ts'
 import { runMeetingWithFallback } from '../../llm/src/structured.ts'
 import { getWorkspaceLlmConfig } from '../../llm/src/settings.ts'
+import { indexTranscriptEmbedding } from '../../search/src/index.ts'
 import { createTranscript } from '../../transcripts/src/index.ts'
 import {
   applyGlossary, cleanupPunctuation, speakerLabels, summarizeQuality,
@@ -118,6 +119,21 @@ export async function processJob(jobId: string, pool: pg.Pool = getPool()): Prom
       `UPDATE transcripts SET processing_meta = $2::jsonb WHERE id = $1`,
       [transcript.id, JSON.stringify(processingMeta)],
     )
+    if (process.env.EMBEDDING_ENABLED === 'true') {
+      try {
+        const config = await getWorkspaceLlmConfig(job.org_id, pool)
+        const embedded = await indexTranscriptEmbedding(principal, transcript, {
+          endpoint: config.endpoint, model: process.env.EMBEDDING_MODEL || 'nomic-embed-text',
+        }, pool)
+        processingMeta.embedding = embedded
+        await pool.query(
+          `UPDATE transcripts SET processing_meta = $2::jsonb WHERE id = $1`,
+          [transcript.id, JSON.stringify(processingMeta)],
+        )
+      } catch (error: any) {
+        console.warn(`[worker] semantic index skipped for ${transcript.id}: ${error.message}`)
+      }
+    }
 
     const done = await markJob(jobId, 'running', 'succeeded',
       { transcript_id: transcript.id, progress: 100 }, pool)

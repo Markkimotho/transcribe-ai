@@ -14,6 +14,7 @@ import {
   CreateJobRequest, CreateApiKeyRequest, CreateShareRequest, CreateMeetingBotRunRequest,
   UpdateTranscriptRequest, RenameSpeakerRequest, GlossaryTermRequest,
   LlmSettingsRequest,
+  KnowledgeSearchQuery, CollectionRequest, SavedSearchRequest, AskKnowledgeRequest,
 } from '@semaje/schemas'
 import {
   registerUser, loginUser, signAccessToken, signRefreshToken, verifyToken,
@@ -39,6 +40,9 @@ import { runMeetingWithFallback } from '../../llm/src/structured.ts'
 import {
   getWorkspaceLlmConfig, saveWorkspaceLlmConfig, isLocalEndpoint,
 } from '../../llm/src/settings.ts'
+import {
+  keywordSearch, semanticSearch, indexTranscriptEmbedding, locateTimestamp,
+} from '../../search/src/index.ts'
 import { GeminiAdapter } from '../../llm/src/adapters/gemini.ts'
 import { requireAuth, rateLimit, validate, errorHandler } from './middleware.ts'
 
@@ -327,6 +331,145 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
       const deleted = await deleteGlossaryTerm(req.principal!, req.params.id)
       if (!deleted) return res.status(404).json({ error: 'Glossary term not found' })
       res.json({ deleted: deleted.id })
+    } catch (e) { next(e) }
+  })
+
+  // ── Local knowledge search ─────────────────────────────────
+  app.get('/api/search', requireAuth(), rateLimit(), async (req, res, next) => {
+    try {
+      const parsed = KnowledgeSearchQuery.safeParse(req.query)
+      if (!parsed.success) return res.status(400).json({ error: 'Invalid search filters' })
+      const { mode, ...filters } = parsed.data
+      if (mode === 'semantic' && !filters.q.trim()) return res.status(400).json({ error: 'Semantic search requires a query' })
+      const config = await getWorkspaceLlmConfig(req.principal!.orgId)
+      const results = mode === 'semantic'
+        ? await semanticSearch(req.principal!, filters.q, filters, {
+            endpoint: config.endpoint, model: process.env.EMBEDDING_MODEL || 'nomic-embed-text',
+          })
+        : await keywordSearch(req.principal!, filters)
+      res.json({ results, mode })
+    } catch (e) { next(e) }
+  })
+
+  app.get('/api/collections', requireAuth(), rateLimit(), async (req, res, next) => {
+    try {
+      const rows = await getPool().query(
+        `SELECT c.id, c.name, c.color, c.created_at, count(t.id)::int AS transcript_count
+         FROM collections c LEFT JOIN transcripts t ON t.collection_id = c.id
+         WHERE c.org_id = $1 GROUP BY c.id ORDER BY lower(c.name)`,
+        [req.principal!.orgId],
+      )
+      res.json({ collections: rows.rows })
+    } catch (e) { next(e) }
+  })
+
+  app.post('/api/collections', requireAuth(), rateLimit(), validate(CollectionRequest), async (req, res, next) => {
+    try {
+      const row = await getPool().query(
+        `INSERT INTO collections (org_id, name, color) VALUES ($1,$2,$3)
+         ON CONFLICT (org_id, name) DO UPDATE SET color = EXCLUDED.color RETURNING *`,
+        [req.principal!.orgId, req.body.name, req.body.color],
+      )
+      res.status(201).json({ collection: row.rows[0] })
+    } catch (e) { next(e) }
+  })
+
+  app.delete('/api/collections/:id', requireAuth(), rateLimit(), async (req, res, next) => {
+    try {
+      const row = await getPool().query(
+        `DELETE FROM collections WHERE org_id = $1 AND id = $2 RETURNING id`,
+        [req.principal!.orgId, req.params.id],
+      )
+      if (!row.rows[0]) return res.status(404).json({ error: 'Collection not found' })
+      res.json({ deleted: row.rows[0].id })
+    } catch (e) { next(e) }
+  })
+
+  app.get('/api/saved-searches', requireAuth(), rateLimit(), async (req, res, next) => {
+    try {
+      const rows = await getPool().query(
+        `SELECT id, name, query, created_at FROM saved_searches
+         WHERE org_id = $1 AND owner_id = $2 ORDER BY created_at DESC`,
+        [req.principal!.orgId, req.principal!.userId],
+      )
+      res.json({ savedSearches: rows.rows })
+    } catch (e) { next(e) }
+  })
+
+  app.post('/api/saved-searches', requireAuth(), rateLimit(), validate(SavedSearchRequest), async (req, res, next) => {
+    try {
+      const row = await getPool().query(
+        `INSERT INTO saved_searches (org_id, owner_id, name, query) VALUES ($1,$2,$3,$4) RETURNING *`,
+        [req.principal!.orgId, req.principal!.userId, req.body.name, JSON.stringify(req.body.query)],
+      )
+      res.status(201).json({ savedSearch: row.rows[0] })
+    } catch (e) { next(e) }
+  })
+
+  app.delete('/api/saved-searches/:id', requireAuth(), rateLimit(), async (req, res, next) => {
+    try {
+      const row = await getPool().query(
+        `DELETE FROM saved_searches WHERE org_id = $1 AND owner_id = $2 AND id = $3 RETURNING id`,
+        [req.principal!.orgId, req.principal!.userId, req.params.id],
+      )
+      if (!row.rows[0]) return res.status(404).json({ error: 'Saved search not found' })
+      res.json({ deleted: row.rows[0].id })
+    } catch (e) { next(e) }
+  })
+
+  app.post('/api/search/index/:id', requireAuth(), rateLimit(), async (req, res, next) => {
+    try {
+      const transcript = await getTranscript(req.principal!, req.params.id)
+      if (!transcript) return res.status(404).json({ error: 'Transcript not found' })
+      const config = await getWorkspaceLlmConfig(req.principal!.orgId)
+      const indexed = await indexTranscriptEmbedding(req.principal!, transcript, {
+        endpoint: config.endpoint, model: process.env.EMBEDDING_MODEL || 'nomic-embed-text',
+      })
+      res.json({ indexed })
+    } catch (e) { next(e) }
+  })
+
+  app.post('/api/knowledge/ask', requireAuth(), rateLimit(), validate(AskKnowledgeRequest), async (req, res, next) => {
+    try {
+      const p = req.principal!
+      let rows: any[]
+      if (req.body.transcriptIds?.length) {
+        rows = (await getPool().query(
+          `SELECT id, title, text, segments FROM transcripts WHERE org_id = $1 AND id = ANY($2::uuid[]) LIMIT 30`,
+          [p.orgId, req.body.transcriptIds],
+        )).rows
+      } else if (req.body.collectionId) {
+        rows = (await getPool().query(
+          `SELECT id, title, text, segments FROM transcripts
+           WHERE org_id = $1 AND collection_id = $2 ORDER BY created_at DESC LIMIT 30`,
+          [p.orgId, req.body.collectionId],
+        )).rows
+      } else {
+        rows = await keywordSearch(p, { q: req.body.question, limit: 8 })
+        if (!rows.length) rows = (await getPool().query(
+          `SELECT id, title, text, segments FROM transcripts WHERE org_id = $1 ORDER BY created_at DESC LIMIT 8`,
+          [p.orgId],
+        )).rows
+      }
+      if (!rows.length) return res.status(404).json({ error: 'No transcripts are available for this question.' })
+      const citations = rows.slice(0, 12).map(row => ({
+        transcriptId: row.id, title: row.title,
+        ...locateTimestamp(row.segments, req.body.question),
+      }))
+      const context = rows.slice(0, 12).map((row, index) => {
+        const segments = (row.segments || []).slice(0, 120)
+        const body = segments.length
+          ? segments.map((segment: any) => `[${Math.floor(segment.start / 60)}:${String(Math.floor(segment.start % 60)).padStart(2, '0')}] ${segment.text}`).join('\n')
+          : String(row.text).slice(0, 30_000)
+        return `SOURCE ${index + 1} — ${row.title} (${row.id})\n${body}`
+      }).join('\n\n')
+      const config = await getWorkspaceLlmConfig(p.orgId)
+      const generated = await runWithFallback(
+        config,
+        `Answer the question using only the supplied transcript sources. Cite sources inline as [1], [2], etc. Say when the evidence is insufficient. QUESTION: ${req.body.question}`,
+        context,
+      )
+      res.json({ answer: generated.text, citations, runtime: generated.meta })
     } catch (e) { next(e) }
   })
 

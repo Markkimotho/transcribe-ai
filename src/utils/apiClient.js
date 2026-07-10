@@ -77,6 +77,57 @@ export async function listTranscripts({ q = '', limit = 20, offset = 0 } = {}) {
   return (await json(await api(`/api/transcripts?${params}`))).transcripts
 }
 
+export async function searchKnowledge(filters = {}) {
+  const params = new URLSearchParams()
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value != null && value !== '' && (!Array.isArray(value) || value.length)) {
+      params.set(key, Array.isArray(value) ? value.join(',') : value)
+    }
+  })
+  return (await json(await api(`/api/search?${params}`))).results
+}
+
+export async function listCollections() {
+  return (await json(await api('/api/collections'))).collections
+}
+
+export async function saveCollection(name, color = '#0f8f83') {
+  return (await json(await api('/api/collections', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, color }),
+  }))).collection
+}
+
+export async function deleteCollection(id) {
+  return json(await api(`/api/collections/${id}`, { method: 'DELETE' }))
+}
+
+export async function listSavedSearches() {
+  return (await json(await api('/api/saved-searches'))).savedSearches
+}
+
+export async function saveSearch(name, query) {
+  return (await json(await api('/api/saved-searches', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, query }),
+  }))).savedSearch
+}
+
+export async function deleteSavedSearch(id) {
+  return json(await api(`/api/saved-searches/${id}`, { method: 'DELETE' }))
+}
+
+export async function askKnowledge(payload) {
+  return json(await api('/api/knowledge/ask', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }))
+}
+
+export async function indexTranscript(id) {
+  return json(await api(`/api/search/index/${id}`, { method: 'POST' }))
+}
+
 export async function getTranscript(id) {
   return (await json(await api(`/api/transcripts/${id}`))).transcript
 }

@@ -111,8 +111,10 @@ export const UpdateTranscriptRequest = z.object({
   title: z.string().min(1).max(300).optional(),
   text: z.string().optional(),
   segments: z.array(WhisperSegment).optional(),
+  collectionId: z.string().uuid().nullable().optional(),
+  tags: z.array(z.string().min(1).max(80)).max(30).optional(),
   reason: z.string().min(1).max(240).default('manual correction'),
-}).refine(value => value.title !== undefined || value.text !== undefined || value.segments !== undefined, {
+}).refine(value => value.title !== undefined || value.text !== undefined || value.segments !== undefined || value.collectionId !== undefined || value.tags !== undefined, {
   message: 'At least one editable field is required',
 })
 
@@ -137,6 +139,35 @@ export const LlmSettingsRequest = z.object({
     followUps: z.boolean(),
     chapters: z.boolean(),
   }),
+})
+
+export const KnowledgeSearchQuery = z.object({
+  q: z.string().max(500).default(''),
+  mode: z.enum(['keyword', 'semantic']).default('keyword'),
+  source: TranscriptSource.optional(),
+  task: TaskId.optional(),
+  speaker: z.string().max(120).optional(),
+  collectionId: z.string().uuid().optional(),
+  tags: z.string().max(500).optional().transform(value => value ? value.split(',').map(tag => tag.trim()).filter(Boolean) : []),
+  dateFrom: z.string().date().optional(),
+  dateTo: z.string().date().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(30),
+})
+
+export const CollectionRequest = z.object({
+  name: z.string().min(1).max(120),
+  color: z.string().regex(/^#[0-9a-f]{6}$/i).default('#0f8f83'),
+})
+
+export const SavedSearchRequest = z.object({
+  name: z.string().min(1).max(120),
+  query: z.record(z.unknown()),
+})
+
+export const AskKnowledgeRequest = z.object({
+  question: z.string().min(2).max(1000),
+  transcriptIds: z.array(z.string().uuid()).max(100).optional(),
+  collectionId: z.string().uuid().optional(),
 })
 
 export const ListTranscriptsQuery = z.object({

@@ -18,7 +18,7 @@
     "worker": "tsx services/jobs/src/worker-main.ts",
     "migrate": "node-pg-migrate -m migrations up",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test --test-concurrency=1 \"services/pipeline/tests/*.test.ts\" \"services/llm/tests/*.test.ts\" \"services/storage/tests/*.test.ts\" \"services/auth/tests/*.test.ts\" \"services/transcripts/tests/*.test.ts\" \"services/jobs/tests/*.test.ts\" \"services/realtime/tests/*.test.ts\" \"services/api/tests/*.test.ts\" \"services/extension/tests/*.test.ts\" \"services/billing/tests/*.test.ts\" \"services/meeting-bot/tests/*.test.ts\"",
+    "test": "node --import tsx --test --test-concurrency=1 \"services/pipeline/tests/*.test.ts\" \"services/llm/tests/*.test.ts\" \"services/storage/tests/*.test.ts\" \"services/auth/tests/*.test.ts\" \"services/transcripts/tests/*.test.ts\" \"services/search/tests/*.test.ts\" \"services/jobs/tests/*.test.ts\" \"services/realtime/tests/*.test.ts\" \"services/api/tests/*.test.ts\" \"services/extension/tests/*.test.ts\" \"services/billing/tests/*.test.ts\" \"services/meeting-bot/tests/*.test.ts\"",
     "test:whisper": "services/whisper/.venv/bin/python -m pytest services/whisper/tests -q",
     "test:all": "npm test && npm run test:whisper",
     "eval:whisper": "services/whisper/.venv/bin/python -m services.whisper.evals.eval_transcription",

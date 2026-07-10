@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   AlertTriangle, ArrowLeft, BookMarked, Check, CheckCircle2, ClipboardList,
   Clock3, Copy, Download, FileClock, Gauge, Highlighter, Link2, MessageSquareText,
@@ -42,6 +42,7 @@ function deriveInsights(transcript) {
 
 export default function TranscriptDetailPage() {
   const { id } = useParams()
+  const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const audioRef = useRef(null)
   const [transcript, setTranscript] = useState(null)
@@ -75,6 +76,17 @@ export default function TranscriptDetailPage() {
     getTranscriptAudio(id).then(url => { objectUrl = url; setAudioUrl(url) }).catch(() => {})
     return () => { if (objectUrl) URL.revokeObjectURL(objectUrl) }
   }, [id])
+
+  useEffect(() => {
+    const at = Number(searchParams.get('at'))
+    if (!Number.isFinite(at) || at < 0 || !transcript) return
+    setTab('transcript')
+    if (audioRef.current) audioRef.current.currentTime = at
+    const closest = (transcript.segments || []).reduce((best, segment) => (
+      Math.abs(segment.start - at) < Math.abs((best?.start ?? Infinity) - at) ? segment : best
+    ), null)
+    if (closest) requestAnimationFrame(() => document.getElementById(`segment-${Math.round(closest.start * 1000)}`)?.scrollIntoView({ block: 'center' }))
+  }, [searchParams, transcript, audioUrl])
 
   const insights = useMemo(() => deriveInsights(transcript), [transcript])
   const speakers = useMemo(
@@ -229,7 +241,7 @@ export default function TranscriptDetailPage() {
                   {draftSegments.map((segment, index) => {
                     const low = typeof segment.confidence === 'number' && segment.confidence < 0.65
                     return (
-                      <div className="segment-row" data-low={low} key={`${segment.start}-${index}`}>
+                      <div id={`segment-${Math.round(segment.start * 1000)}`} className="segment-row" data-low={low} key={`${segment.start}-${index}`}>
                         <button className="segment-time" onClick={() => seek(segment.start)} title="Play from this moment">
                           <Play size={11} /> {formatTime(segment.start)}
                         </button>

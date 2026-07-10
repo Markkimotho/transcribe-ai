@@ -40,13 +40,41 @@ export async function createTranscript(
 
 export async function updateTranscript(
   principal: Principal, id: string,
-  patch: { title?: string; text?: string; segments?: unknown[]; reason?: string },
+  patch: {
+    title?: string; text?: string; segments?: unknown[]; reason?: string
+    collectionId?: string | null; tags?: string[]
+  },
   pool: pg.Pool = getPool(),
 ) {
   const current = await getTranscript(principal, id, pool)
   if (!current) return null
+  if (patch.collectionId) {
+    const collection = await pool.query(
+      `SELECT id FROM collections WHERE id = $1 AND org_id = $2`,
+      [patch.collectionId, principal.orgId],
+    )
+    if (!collection.rows[0]) {
+      const error = new Error('Collection not found in this workspace')
+      ;(error as Error & { status?: number }).status = 400
+      throw error
+    }
+  }
   const nextText = patch.text ?? current.text
   const nextSegments = patch.segments ?? current.segments
+  const contentChanged = patch.title !== undefined || patch.text !== undefined || patch.segments !== undefined
+  if (!contentChanged) {
+    const metadata = await pool.query(
+      `UPDATE transcripts SET
+         collection_id = CASE WHEN $3 THEN $4::uuid ELSE collection_id END,
+         tags = COALESCE($5::text[], tags), updated_at = now()
+       WHERE org_id = $1 AND id = $2 RETURNING *`,
+      [
+        principal.orgId, id, patch.collectionId !== undefined, patch.collectionId ?? null,
+        patch.tags ?? null,
+      ],
+    )
+    return metadata.rows[0] ?? null
+  }
   const client = await pool.connect()
   await client.query('BEGIN')
   try {
@@ -64,9 +92,15 @@ export async function updateTranscript(
     const updated = await client.query(
       `UPDATE transcripts SET
          title = COALESCE($3, title), text = $4, segments = $5,
+         collection_id = CASE WHEN $6 THEN $7::uuid ELSE collection_id END,
+         tags = COALESCE($8::text[], tags),
          updated_at = now()
        WHERE org_id = $1 AND id = $2 RETURNING *`,
-      [principal.orgId, id, patch.title ?? null, nextText, nextSegments ? JSON.stringify(nextSegments) : null],
+      [
+        principal.orgId, id, patch.title ?? null, nextText,
+        nextSegments ? JSON.stringify(nextSegments) : null,
+        patch.collectionId !== undefined, patch.collectionId ?? null, patch.tags ?? null,
+      ],
     )
     await client.query('COMMIT')
     return updated.rows[0] ?? null

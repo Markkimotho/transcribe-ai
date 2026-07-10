@@ -86,6 +86,14 @@ The local deployment profile pulls `OLLAMA_MODEL` automatically. A llama.cpp
 OpenAI-compatible server is also supported: place a GGUF file in the
 `llamamodels` volume and run compose with `--profile llama-cpp`.
 
+## Local search and embeddings
+
+Postgres full-text search is always available offline and requires no model.
+Optional semantic search uses the configured Ollama endpoint with
+`EMBEDDING_MODEL=nomic-embed-text`. Set `EMBEDDING_ENABLED=true` to index new
+transcripts automatically; existing transcripts can be indexed from the API.
+Vectors remain in Postgres as arrays, so pgvector is not required.
+
 ## Upgrades
 
 1. Back up Postgres and the `blobdata` volume.
