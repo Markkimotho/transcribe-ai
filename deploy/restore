@@ -21,7 +21,7 @@ archive="$(cd "$archive" && pwd)"
 docker compose stop frontend api worker watcher retention >/dev/null 2>&1 || true
 docker compose exec -T postgres pg_restore -U semaje -d semaje --clean --if-exists --no-owner < "$archive/postgres.dump"
 docker compose run --rm --no-deps -T api sh -c \
-  'rm -rf /data/blobs /data/exports /data/logs /data/integrations; mkdir -p /data; tar -C /data -xzf -' \
+  'rm -rf /data/blobs /data/exports /data/logs /data/integrations /data/observability; mkdir -p /data; tar -C /data -xzf -' \
   < "$archive/app-data.tar.gz"
 docker compose run --rm --no-deps -T whisper sh -c \
   'rm -rf /models/*; tar -C /models -xzf -' < "$archive/whisper-models.tar.gz"

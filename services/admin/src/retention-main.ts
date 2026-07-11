@@ -1,6 +1,7 @@
 import 'dotenv/config'
 import { getPool } from '@semaje/db'
 import { runRetention } from './index.ts'
+import { logError, logInfo } from '../../observability/src/logger.ts'
 
 async function sweep() {
   const pool = getPool()
@@ -18,9 +19,9 @@ async function sweep() {
       const result = await runRetention({
         userId: policy.user_id, orgId: policy.org_id, role: 'owner', scopes: [], via: 'jwt',
       })
-      console.log(`[retention] ${policy.org_id}: ${result.transcripts} transcript(s), ${result.audioBlobs} blob(s)`)
+      logInfo('retention.succeeded', { orgId: policy.org_id, transcripts: result.transcripts, audioBlobs: result.audioBlobs })
     } catch (error: any) {
-      console.error(`[retention] ${policy.org_id}: ${error.message}`)
+      logError('retention.failed', { orgId: policy.org_id, error: error.message })
     }
   }
 }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  ArchiveRestore, Check, Clipboard, Clock3, Database, FileKey, Fingerprint,
+  Activity, ArchiveRestore, Check, Clipboard, Clock3, Database, FileKey, Fingerprint,
   HardDrive, KeyRound, Plus, RefreshCcw, Route, ShieldCheck, Trash2, UserPlus, Users,
 } from 'lucide-react'
 import {
@@ -79,6 +79,7 @@ export default function PlatformSettingsPage() {
         <Link to="/settings/models"><HardDrive size={15} /><span>Speech models</span></Link>
         <Link to="/settings/intelligence"><Database size={15} /><span>Local AI</span></Link>
         <Link to="/settings/integrations"><Route size={15} /><span>Routing</span></Link>
+        <Link to="/settings/observability"><Activity size={15} /><span>Telemetry</span></Link>
       </nav>
 
       <div className="admin-tabbar">

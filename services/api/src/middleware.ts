@@ -4,6 +4,7 @@ import { RateLimiterMemory } from 'rate-limiter-flexible'
 import type { ZodSchema } from 'zod'
 import { authenticate, AuthError, ForbiddenError } from '../../auth/src/index.ts'
 import type { Principal } from '@semaje/schemas'
+import { logError } from '../../observability/src/logger.ts'
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -64,7 +65,7 @@ export function errorHandler() {
   return (err: Error & { status?: number }, _req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof AuthError) return res.status(401).json({ error: err.message })
     if (err instanceof ForbiddenError) return res.status(403).json({ error: err.message })
-    console.error('[api]', err)
+    logError('request.failed', { error: err.message, status: err.status || 500 })
     res.status(err.status || 500).json({ error: err.message || 'Internal error' })
   }
 }

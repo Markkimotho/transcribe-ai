@@ -4,7 +4,7 @@
 
 Run `deploy/backup`. It creates a timestamped, checksummed directory under `backups/` containing a
 custom-format Postgres dump, local blobs/exports/logs/integration files, Whisper models, optional
-Ollama models, the source revision, and a copy of `.env` when present. Set `BACKUP_DIR` to write to
+observability reports, Ollama models, the source revision, and a copy of `.env` when present. Set `BACKUP_DIR` to write to
 encrypted removable or network storage.
 
 Verify without restoring:

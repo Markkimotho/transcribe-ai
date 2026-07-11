@@ -6,7 +6,7 @@
 import express, { type Express } from 'express'
 import cors from 'cors'
 import multer from 'multer'
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
 import { readFile, unlink } from 'node:fs/promises'
 import { getPool } from '@semaje/db'
 import {
@@ -53,6 +53,7 @@ import {
   acceptWorkspaceInvite, auditEvent, createWorkspaceInvite, getRetentionPolicy,
   runRetention, saveRetentionPolicy,
 } from '../../admin/src/index.ts'
+import { getOperationsSnapshot, renderPrometheus } from '../../observability/src/index.ts'
 import { requireAuth, requireScope, rateLimit, validate, errorHandler } from './middleware.ts'
 
 function isLocalRequest(ip = '') {
@@ -86,6 +87,12 @@ function auditContext(req: express.Request) {
 function routeParam(req: express.Request, name: string) {
   const value = req.params[name]
   return Array.isArray(value) ? value[0] || '' : value
+}
+
+function tokensMatch(supplied: string, expected: string) {
+  const left = Buffer.from(supplied)
+  const right = Buffer.from(expected)
+  return left.length === right.length && timingSafeEqual(left, right)
 }
 
 export function createApp(opts: { enableJobs?: boolean } = {}): Express {
@@ -147,6 +154,24 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
       whisper: { reachable: !!(w as { backend?: string }).backend, backend: (w as { backend?: string }).backend ?? null },
       llmAdapter: process.env.LLM_ADAPTER || 'claude-local',
     })
+  })
+
+  app.get('/metrics', async (req, res, next) => {
+    try {
+      const expected = process.env.METRICS_TOKEN || ''
+      const supplied = String(req.header('authorization') || '').replace(/^Bearer\s+/i, '')
+      if (expected ? !tokensMatch(supplied, expected) : !isLocalRequest(req.ip)) {
+        return res.status(403).type('text/plain').send('metrics access denied\n')
+      }
+      const orgId = process.env.METRICS_ORG_ID || (await getPool().query(
+        `SELECT id FROM orgs ORDER BY created_at LIMIT 1`,
+      )).rows[0]?.id
+      if (!orgId) return res.type('text/plain; version=0.0.4').send('# semaje has no organizations yet\n')
+      const snapshot = await getOperationsSnapshot({
+        orgId, userId: '00000000-0000-0000-0000-000000000000', role: 'owner', scopes: [], via: 'single-user',
+      })
+      res.type('text/plain; version=0.0.4').send(renderPrometheus(snapshot))
+    } catch (error) { next(error) }
   })
 
   // ── Auth ───────────────────────────────────────────────────
@@ -237,6 +262,17 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
         },
       })
     } catch (e) { next(e) }
+  })
+
+  app.get('/api/admin/observability', requireAuth(), requireScope('admin'), rateLimit(), async (req, res, next) => {
+    try {
+      if (!['owner', 'admin'].includes(req.principal!.role)) return res.status(403).json({ error: 'Admin access required' })
+      const [snapshot, runtime] = await Promise.all([
+        getOperationsSnapshot(req.principal!),
+        whisperModels().catch(() => ({ models: [], active: null, hardware: null })),
+      ])
+      res.json({ ...snapshot, modelCache: runtime })
+    } catch (error) { next(error) }
   })
 
   app.post('/api/admin/invites', requireAuth(), requireScope('admin'), rateLimit(), validate(InviteRequest), async (req, res, next) => {

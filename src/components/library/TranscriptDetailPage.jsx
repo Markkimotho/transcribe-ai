@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   AlertTriangle, ArrowLeft, BookMarked, Check, CheckCircle2, ClipboardList,
-  Clock3, Copy, Download, FileClock, Gauge, Highlighter, Link2, MessageSquareText,
+  Clock3, Copy, Cpu, Download, FileClock, Gauge, Highlighter, Link2, MessageSquareText,
   PencilLine, Play, Plus, Save, Send, Sparkles, Trash2, UserRound, X,
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
@@ -109,6 +109,7 @@ export default function TranscriptDetailPage() {
     [transcript],
   )
   const quality = transcript?.quality_meta || {}
+  const sttRuntime = transcript?.processing_meta || {}
   const llmRuntime = transcript?.processing_meta?.llm
 
   const seek = seconds => {
@@ -383,6 +384,20 @@ export default function TranscriptDetailPage() {
               <div><dt>Glossary hits</dt><dd>{quality.glossaryMatches || 0}</dd></div>
             </dl>
           </section>
+
+          {sttRuntime.model && (
+            <section>
+              <p className="inspector-title"><Cpu size={14} /> Speech runtime</p>
+              <dl className="quality-list">
+                <div><dt>Backend</dt><dd>{sttRuntime.backend || '-'}</dd></div>
+                <div><dt>Model</dt><dd>{sttRuntime.model}</dd></div>
+                <div><dt>Device</dt><dd>{sttRuntime.device || 'auto'}</dd></div>
+                <div><dt>STT runtime</dt><dd>{Number(sttRuntime.runtimeSec || 0).toFixed(2)}s</dd></div>
+                <div><dt>Realtime factor</dt><dd>{Number(sttRuntime.realtimeFactor || 0).toFixed(2)}x</dd></div>
+                <div><dt>Queue wait</dt><dd>{Number(sttRuntime.queueLatencySec || 0).toFixed(2)}s</dd></div>
+              </dl>
+            </section>
+          )}
 
           {llmRuntime && (
             <section>

@@ -26,6 +26,7 @@ const fakePool = {
   },
   query(text: string, values: unknown[] = []) {
     if (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK') return Promise.resolve({ rows: [] })
+    if (text.includes('SELECT id FROM orgs ORDER BY created_at')) return Promise.resolve({ rows: [{ id: ORG_A }] })
     if (text.includes('INSERT INTO transcripts')) {
       const row = {
         id: T_ID, org_id: values[0], owner_id: values[1], title: values[2],
@@ -140,6 +141,17 @@ test('health endpoint answers without auth', async () => {
   assert.equal(res.status, 200)
   const body = await res.json() as { name: string }
   assert.equal(body.name, 'semaje')
+})
+
+test('Prometheus metrics require the configured bearer token', async () => {
+  process.env.METRICS_TOKEN = 'metrics-test-token'
+  try {
+    const denied = await fetch(`${base}/metrics`)
+    assert.equal(denied.status, 403)
+    const allowed = await fetch(`${base}/metrics`, { headers: { Authorization: 'Bearer metrics-test-token' } })
+    assert.equal(allowed.status, 200)
+    assert.match(await allowed.text(), /semaje_jobs_total/)
+  } finally { delete process.env.METRICS_TOKEN }
 })
 
 test('local-db mode: transcript routes require auth (401)', async () => {

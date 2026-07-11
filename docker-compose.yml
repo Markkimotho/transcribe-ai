@@ -19,6 +19,9 @@ x-app-env: &app-env
   SHARE_LOCAL_ONLY: ${SHARE_LOCAL_ONLY:-false}
   TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
   INTEGRATION_FILE_SYNC_DIR: ${INTEGRATION_FILE_SYNC_DIR:-/data/integrations}
+  OBSERVABILITY_WER_REPORT: /data/observability/whisper-eval.json
+  METRICS_TOKEN: ${METRICS_TOKEN:-}
+  METRICS_ORG_ID: ${METRICS_ORG_ID:-}
   NEXTCLOUD_WEBDAV_URL: ${NEXTCLOUD_WEBDAV_URL:-}
   NEXTCLOUD_USERNAME: ${NEXTCLOUD_USERNAME:-}
   NEXTCLOUD_PASSWORD: ${NEXTCLOUD_PASSWORD:-}
@@ -33,6 +36,7 @@ x-app-volumes: &app-volumes
   - exports:/data/exports
   - logs:/data/logs
   - integrationdata:/data/integrations
+  - ./data/observability:/data/observability
 
 services:
   postgres:
@@ -63,8 +67,10 @@ services:
       WHISPER_DEVICE: ${WHISPER_DEVICE:-cpu}
       WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8}
       HF_HOME: /models
+      EVAL_REPORT_PATH: /data/observability/whisper-eval.json
     volumes:
       - whispermodels:/models
+      - ./data/observability:/data/observability
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8011/health', timeout=3)"]
       interval: 15s

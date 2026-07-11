@@ -297,6 +297,10 @@ export async function getSecurityAdmin() {
   return json(await api('/api/admin/security'))
 }
 
+export async function getObservability() {
+  return json(await api('/api/admin/observability'))
+}
+
 export async function createInvite(payload) {
   return json(await api('/api/admin/invites', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),

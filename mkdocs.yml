@@ -20,6 +20,8 @@ theme:
 
 nav:
   - Home: index.md
+  - Low-cost operations: low-cost-operations.md
+  - Backup and restore: backup-restore.md
 
 markdown_extensions:
   - admonition

@@ -6,6 +6,7 @@ import { basename, join } from 'node:path'
 import {
   archiveName, buildFolderIngestKey, isSupportedMedia, mediaMimeType,
 } from './watcher-core.ts'
+import { logError, logInfo } from '../../observability/src/logger.ts'
 
 const watchDir = process.env.WATCH_DIR || './data/watch'
 const apiBase = (process.env.WATCH_API_BASE || 'http://localhost:3001').replace(/\/$/, '')
@@ -61,9 +62,9 @@ async function trackJob(path: string, job: { id: string; status: string }) {
     }
     const targetDir = status === 'succeeded' ? completedDir : failedDir
     await move(path, join(targetDir, basename(path)))
-    console.log(`[watch] ${basename(path)} -> ${status}`)
+    logInfo('watcher.job_finished', { file: basename(path), jobId: job.id, status })
   } catch (error: any) {
-    console.error(`[watch] tracking ${basename(path)} failed: ${error.message}`)
+    logError('watcher.tracking_failed', { file: basename(path), jobId: job.id, error: error.message })
   } finally {
     active.delete(path)
   }
@@ -91,10 +92,10 @@ async function ingest(path: string) {
     active.delete(path)
     active.add(processingPath)
     void trackJob(processingPath, data.job)
-    console.log(`[watch] accepted ${basename(path)} as job ${data.job.id}`)
+    logInfo('watcher.accepted', { file: basename(path), jobId: data.job.id })
   } catch (error: any) {
     active.delete(path)
-    console.error(`[watch] ${basename(path)} left for retry: ${error.message}`)
+    logError('watcher.ingest_failed', { file: basename(path), error: error.message })
   }
 }
 
@@ -111,7 +112,7 @@ async function scan() {
       void ingest(path)
     }
   } catch (error: any) {
-    console.error(`[watch] scan failed: ${error.message}`)
+    logError('watcher.scan_failed', { watchDir, error: error.message })
   } finally {
     scanning = false
   }
@@ -121,6 +122,6 @@ await Promise.all([
   mkdir(watchDir, { recursive: true }), mkdir(processingDir, { recursive: true }),
   mkdir(completedDir, { recursive: true }), mkdir(failedDir, { recursive: true }),
 ])
-console.log(`[watch] observing ${watchDir}; completed and failed recordings stay under ${stateDir}`)
+logInfo('watcher.ready', { watchDir, stateDir, scanMs, settleMs })
 await scan()
 setInterval(scan, scanMs)

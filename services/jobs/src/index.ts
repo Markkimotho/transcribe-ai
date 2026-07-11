@@ -8,6 +8,7 @@ import type pg from 'pg'
 import { getPool } from '@semaje/db'
 import type { Principal, JobInput } from '@semaje/schemas'
 import { assertTransition, buildWebhookPayload, nextWebhookDelayMs, signWebhookBody } from './state.ts'
+import { logError, logWarn } from '../../observability/src/logger.ts'
 
 export { canTransition, assertTransition, buildWebhookPayload } from './state.ts'
 
@@ -18,7 +19,7 @@ let boss: PgBoss | null = null
 export async function getBoss(): Promise<PgBoss> {
   if (!boss) {
     boss = new PgBoss(process.env.DATABASE_URL || 'postgres://semaje:semaje@localhost:5432/semaje')
-    boss.on('error', e => console.error('[pg-boss]', e.message))
+    boss.on('error', e => logError('queue.error', { error: e.message }))
     await boss.start()
     await boss.createQueue(QUEUE_TRANSCRIBE)
   }
@@ -157,7 +158,7 @@ export async function notifyWebhook(job: {
       return
     } catch (e: any) {
       if (attempt === 3) {
-        console.warn(`[webhook] delivery failed for job ${job.id}: ${e.message}`)
+        logWarn('webhook.delivery_failed', { jobId: job.id, error: e.message })
         return
       }
       await new Promise(resolve => setTimeout(resolve, nextWebhookDelayMs(attempt)))

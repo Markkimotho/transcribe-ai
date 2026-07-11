@@ -14,7 +14,7 @@ trap 'rm -rf "$work"' EXIT
 docker compose build --quiet api whisper >/dev/null
 docker compose exec -T postgres pg_dump -U semaje -d semaje -Fc > "$work/postgres.dump"
 docker compose run --rm --no-deps -T api sh -c \
-  'tar -C /data -czf - blobs exports logs integrations 2>/dev/null || tar -C /data -czf - blobs' \
+  'tar -C /data -czf - blobs exports logs integrations observability 2>/dev/null || tar -C /data -czf - blobs' \
   > "$work/app-data.tar.gz"
 docker compose run --rm --no-deps -T whisper tar -C /models -czf - . > "$work/whisper-models.tar.gz"
 

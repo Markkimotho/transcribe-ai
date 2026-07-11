@@ -8,6 +8,7 @@ import { createApp } from './app.ts'
 import { attachRealtime } from '../../realtime/src/ws-server.ts'
 import { whisperHealth } from '../../whisper/client/index.ts'
 import { ensureSeed } from '../../auth/src/index.ts'
+import { logInfo, logWarn } from '../../observability/src/logger.ts'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PORT = Number(process.env.PORT || 3001)
@@ -25,15 +26,16 @@ const server = createServer(app)
 attachRealtime(server)
 
 server.listen(PORT, async () => {
-  console.log(`\n🎙  semaje api → http://localhost:${PORT}  (ws: /ws)`)
+  logInfo('api.ready', { port: PORT, websocketPath: '/ws' })
   if ((process.env.AUTH_ADAPTER || 'single-user') === 'single-user') {
-    try { await ensureSeed(); console.log('   auth: single-user (seeded default org)') }
-    catch (e: any) { console.log(`   auth: single-user (seed pending: ${e.message})`) }
+    try { await ensureSeed(); logInfo('auth.ready', { adapter: 'single-user', seeded: true }) }
+    catch (e: any) { logWarn('auth.seed_pending', { adapter: 'single-user', error: e.message }) }
   } else {
-    console.log(`   auth: ${process.env.AUTH_ADAPTER}`)
+    logInfo('auth.ready', { adapter: process.env.AUTH_ADAPTER })
   }
   const w = await whisperHealth()
-  console.log(`   whisper: ${(w as { backend?: string }).backend ? `✅ ${(w as { backend?: string }).backend}` : '❌ not reachable'}`)
-  console.log(`   llm: ${process.env.LLM_ADAPTER || 'claude-local'}`)
-  console.log(`   storage: ${process.env.STORAGE_ADAPTER || 'fs'}`)
+  logInfo('dependencies.ready', {
+    whisper: (w as { backend?: string }).backend || null,
+    llm: process.env.LLM_ADAPTER || 'claude-local', storage: process.env.STORAGE_ADAPTER || 'fs',
+  })
 })

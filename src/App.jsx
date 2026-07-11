@@ -22,6 +22,7 @@ import PlatformSettingsPage from './components/settings/PlatformSettingsPage'
 import ModelManagerPage from './components/settings/ModelManagerPage'
 import IntelligenceSettingsPage from './components/settings/IntelligenceSettingsPage'
 import IntegrationsPage from './components/settings/IntegrationsPage'
+import ObservabilityPage from './components/settings/ObservabilityPage'
 import MeetingsPage from './components/meetings/MeetingsPage'
 import OnboardingPage from './components/onboarding/OnboardingPage'
 import CaptureActivity from './components/capture/CaptureActivity'
@@ -162,6 +163,7 @@ export default function App() {
           <Route path="/settings/models" element={<Shell><RequireAuth><RequireOnboarding><ModelManagerPage /></RequireOnboarding></RequireAuth></Shell>} />
           <Route path="/settings/intelligence" element={<Shell><RequireAuth><RequireOnboarding><IntelligenceSettingsPage /></RequireOnboarding></RequireAuth></Shell>} />
           <Route path="/settings/integrations" element={<Shell><RequireAuth><RequireOnboarding><IntegrationsPage /></RequireOnboarding></RequireAuth></Shell>} />
+          <Route path="/settings/observability" element={<Shell><RequireAuth><RequireOnboarding><ObservabilityPage /></RequireOnboarding></RequireAuth></Shell>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>

@@ -12,6 +12,7 @@ import { runMeetingWithFallback } from '../../llm/src/structured.ts'
 import { getWorkspaceLlmConfig } from '../../llm/src/settings.ts'
 import { indexTranscriptEmbedding } from '../../search/src/index.ts'
 import { emitIntegrationEvent } from '../../integrations/src/index.ts'
+import { logError, logInfo, logWarn } from '../../observability/src/logger.ts'
 import { createTranscript } from '../../transcripts/src/index.ts'
 import {
   applyGlossary, cleanupPunctuation, speakerLabels, summarizeQuality,
@@ -27,6 +28,8 @@ export async function processJob(jobId: string, pool: pg.Pool = getPool()): Prom
 
   const running = await markJob(jobId, 'queued', 'running', {}, pool)
   if (!running) return
+  const queueLatencySec = Math.max(0, (Date.now() - new Date(job.created_at).getTime()) / 1000)
+  logInfo('job.started', { jobId, orgId: job.org_id, queueLatencySec: Number(queueLatencySec.toFixed(3)), attempt: Number(job.attempts || 0) + 1 })
 
   const principal = {
     userId: job.owner_id, orgId: job.org_id,
@@ -71,6 +74,7 @@ export async function processJob(jobId: string, pool: pg.Pool = getPool()): Prom
       runtimeSec: Number(runtimeSec.toFixed(3)),
       realtimeFactor: Number((runtimeSec / Math.max(whisper.duration, 0.001)).toFixed(3)),
       device: process.env.WHISPER_DEVICE || 'auto',
+      queueLatencySec: Number(queueLatencySec.toFixed(3)),
     }
     await pool.query(
       `UPDATE jobs SET progress = 70, processing_meta = processing_meta || $2::jsonb WHERE id = $1`,
@@ -133,24 +137,25 @@ export async function processJob(jobId: string, pool: pg.Pool = getPool()): Prom
           [transcript.id, JSON.stringify(processingMeta)],
         )
       } catch (error: any) {
-        console.warn(`[worker] semantic index skipped for ${transcript.id}: ${error.message}`)
+        logWarn('embedding.skipped', { jobId, transcriptId: transcript.id, error: error.message })
       }
     }
 
     const done = await markJob(jobId, 'running', 'succeeded',
       { transcript_id: transcript.id, progress: 100 }, pool)
     if (done) {
+      logInfo('job.succeeded', { jobId, orgId: job.org_id, transcriptId: transcript.id, model: whisper.model, runtimeSec: processingMeta.runtimeSec, realtimeFactor: processingMeta.realtimeFactor })
       await notifyWebhook(done)
       try {
         await emitIntegrationEvent(principal, 'job.succeeded', {
           jobId: done.id, transcriptId: transcript.id, title: transcript.title,
         }, pool)
       } catch (error: any) {
-        console.warn(`[worker] integration event skipped for ${jobId}: ${error.message}`)
+        logWarn('integration.skipped', { jobId, event: 'job.succeeded', error: error.message })
       }
     }
   } catch (e: any) {
-    console.error(`[worker] job ${jobId} failed:`, e.message)
+    logError('job.failed', { jobId, orgId: job.org_id, error: e.message })
     const failed = await markJob(jobId, 'running', 'failed', { error: e.message }, pool)
     if (failed) {
       await notifyWebhook(failed)
@@ -159,7 +164,7 @@ export async function processJob(jobId: string, pool: pg.Pool = getPool()): Prom
           jobId: failed.id, transcriptId: failed.transcript_id, error: failed.error,
         }, pool)
       } catch (error: any) {
-        console.warn(`[worker] failed-event delivery skipped for ${jobId}: ${error.message}`)
+        logWarn('integration.skipped', { jobId, event: 'job.failed', error: error.message })
       }
     }
   }
@@ -176,5 +181,5 @@ export async function startWorker(): Promise<void> {
       }
     })
   }
-  console.log(`semaje worker consuming ${QUEUE_TRANSCRIBE} with ${concurrency} slot(s)`)
+  logInfo('worker.ready', { queue: QUEUE_TRANSCRIBE, concurrency })
 }
