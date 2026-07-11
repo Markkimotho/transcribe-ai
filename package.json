@@ -21,12 +21,15 @@
     "retention": "tsx services/admin/src/retention-main.ts",
     "migrate": "node-pg-migrate -m migrations up",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test --test-concurrency=1 \"services/pipeline/tests/*.test.ts\" \"services/llm/tests/*.test.ts\" \"services/storage/tests/*.test.ts\" \"services/auth/tests/*.test.ts\" \"services/admin/tests/*.test.ts\" \"services/observability/tests/*.test.ts\" \"services/transcripts/tests/*.test.ts\" \"services/search/tests/*.test.ts\" \"services/jobs/tests/*.test.ts\" \"services/ingest/tests/*.test.ts\" \"services/desktop/tests/*.test.ts\" \"services/integrations/tests/*.test.ts\" \"services/realtime/tests/*.test.ts\" \"services/api/tests/*.test.ts\" \"services/extension/tests/*.test.ts\" \"services/billing/tests/*.test.ts\" \"services/meeting-bot/tests/*.test.ts\"",
+    "test": "node --import tsx --test --test-concurrency=1 \"services/pipeline/tests/*.test.ts\" \"services/llm/tests/*.test.ts\" \"services/storage/tests/*.test.ts\" \"services/auth/tests/*.test.ts\" \"services/admin/tests/*.test.ts\" \"services/observability/tests/*.test.ts\" \"services/evals/tests/*.test.ts\" \"services/transcripts/tests/*.test.ts\" \"services/search/tests/*.test.ts\" \"services/jobs/tests/*.test.ts\" \"services/ingest/tests/*.test.ts\" \"services/desktop/tests/*.test.ts\" \"services/integrations/tests/*.test.ts\" \"services/realtime/tests/*.test.ts\" \"services/api/tests/*.test.ts\" \"services/extension/tests/*.test.ts\" \"services/billing/tests/*.test.ts\" \"services/meeting-bot/tests/*.test.ts\"",
     "test:whisper": "services/whisper/.venv/bin/python -m pytest services/whisper/tests -q",
     "test:all": "npm test && npm run test:whisper",
     "eval:whisper": "services/whisper/.venv/bin/python -m services.whisper.evals.eval_transcription",
     "eval:llm": "tsx services/llm/evals/eval_tasks.ts",
-    "eval:realtime": "tsx services/realtime/evals/eval_stream.ts"
+    "eval:realtime": "tsx services/realtime/evals/eval_stream.ts",
+    "eval:smoke": "tsx services/evals/src/run.ts --profile smoke",
+    "eval:stt:capture": "tsx services/evals/src/capture-stt.ts",
+    "eval:full": "npm run eval:stt:capture && npm run eval:smoke -- --candidate .eval-results/stt-candidate.json && npm run eval:llm && npm run eval:realtime"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.650.0",

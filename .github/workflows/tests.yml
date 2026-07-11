@@ -27,6 +27,8 @@ jobs:
         run: npm run typecheck
       - name: Node gate tests
         run: npm test
+      - name: Deterministic quality smoke eval
+        run: npm run eval:smoke
       - name: Frontend build
         run: npm run build
 
