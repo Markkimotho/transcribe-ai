@@ -16,6 +16,7 @@ import {
   LlmSettingsRequest,
   KnowledgeSearchQuery, CollectionRequest, SavedSearchRequest, AskKnowledgeRequest,
   IngestRequest, WebhookRequest, DeliverTranscriptRequest, ActionItemRequest, type Principal,
+  InviteRequest, AcceptInviteRequest, MemberRoleRequest, WorkspaceRequest, RetentionPolicyRequest,
 } from '@semaje/schemas'
 import {
   registerUser, loginUser, signAccessToken, signRefreshToken, verifyToken,
@@ -48,12 +49,25 @@ import { GeminiAdapter } from '../../llm/src/adapters/gemini.ts'
 import {
   deliverTranscript, emitIntegrationEvent, integrationStatus,
 } from '../../integrations/src/index.ts'
+import {
+  acceptWorkspaceInvite, auditEvent, createWorkspaceInvite, getRetentionPolicy,
+  runRetention, saveRetentionPolicy,
+} from '../../admin/src/index.ts'
 import { requireAuth, requireScope, rateLimit, validate, errorHandler } from './middleware.ts'
 
 function isLocalRequest(ip = '') {
   const value = ip.replace(/^::ffff:/, '')
   return value === '::1' || value === '127.0.0.1' || value.startsWith('10.')
     || value.startsWith('192.168.') || /^172\.(1[6-9]|2\d|3[01])\./.test(value)
+}
+
+function isPrivateUrl(value: string) {
+  try {
+    const host = new URL(value).hostname.toLowerCase()
+    return host === 'localhost' || host === '127.0.0.1' || host === '::1'
+      || host.startsWith('10.') || host.startsWith('192.168.')
+      || /^172\.(1[6-9]|2\d|3[01])\./.test(host) || !host.includes('.')
+  } catch { return false }
 }
 
 function exportableTranscript(t: any) {
@@ -63,6 +77,15 @@ function exportableTranscript(t: any) {
     durationSec: t.duration_sec, createdAt: t.created_at, result: t.result,
     speakerLabels: t.speaker_labels, tags: t.tags,
   }
+}
+
+function auditContext(req: express.Request) {
+  return { ip: req.ip, userAgent: req.header('user-agent') || undefined }
+}
+
+function routeParam(req: express.Request, name: string) {
+  const value = req.params[name]
+  return Array.isArray(value) ? value[0] || '' : value
 }
 
 export function createApp(opts: { enableJobs?: boolean } = {}): Express {
@@ -159,12 +182,137 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
     } catch (e) { next(e) }
   })
 
+  app.post('/api/auth/invites/accept', rateLimit(), validate(AcceptInviteRequest), async (req, res, next) => {
+    try {
+      const principal = await acceptWorkspaceInvite(req.body.token, req.body.password, req.body.displayName)
+      await auditEvent(principal, 'invite.accepted', { type: 'user', id: principal.userId }, auditContext(req))
+      res.status(201).json({
+        accessToken: signAccessToken(principal), refreshToken: signRefreshToken(principal),
+        principal,
+      })
+    } catch (e: any) {
+      e.status = 400
+      next(e)
+    }
+  })
+
   app.get('/api/me', requireAuth(), rateLimit(), async (req, res) => {
     res.json({ principal: req.principal })
   })
 
+  // ── Team administration, audit, and retention ─────────────
+  app.get('/api/admin/security', requireAuth(), requireScope('admin'), rateLimit(), async (req, res, next) => {
+    try {
+      if (!['owner', 'admin'].includes(req.principal!.role)) return res.status(403).json({ error: 'Admin access required' })
+      const p = req.principal!
+      const [members, invites, workspaces, audits, retention] = await Promise.all([
+        getPool().query(
+          `SELECT u.id, u.email, u.display_name, m.role, m.created_at, u.last_login_at
+           FROM memberships m JOIN users u ON u.id = m.user_id
+           WHERE m.org_id = $1 ORDER BY lower(u.email)`, [p.orgId],
+        ),
+        getPool().query(
+          `SELECT id, email, role, expires_at, accepted_at, created_at FROM invites
+           WHERE org_id = $1 ORDER BY created_at DESC LIMIT 30`, [p.orgId],
+        ),
+        getPool().query(
+          `SELECT id, name, created_at FROM workspaces WHERE org_id = $1 ORDER BY created_at`, [p.orgId],
+        ),
+        getPool().query(
+          `SELECT a.id, a.action, a.target_type, a.target_id, a.metadata, a.ip_address,
+                  a.created_at, u.email AS actor_email
+           FROM audit_events a LEFT JOIN users u ON u.id = a.actor_id
+           WHERE a.org_id = $1 ORDER BY a.created_at DESC LIMIT 100`, [p.orgId],
+        ),
+        getRetentionPolicy(p.orgId),
+      ])
+      res.json({
+        members: members.rows, invites: invites.rows, workspaces: workspaces.rows,
+        auditEvents: audits.rows, retention,
+        deployment: {
+          authMode: process.env.AUTH_ADAPTER || 'single-user',
+          strictLocal: process.env.STRICT_LOCAL_MODE === 'true',
+          sharingEnabled: process.env.STRICT_LOCAL_MODE !== 'true' && process.env.SHARING_ENABLED !== 'false',
+          encryptionKeyConfigured: Boolean(process.env.DATA_ENCRYPTION_KEY),
+        },
+      })
+    } catch (e) { next(e) }
+  })
+
+  app.post('/api/admin/invites', requireAuth(), requireScope('admin'), rateLimit(), validate(InviteRequest), async (req, res, next) => {
+    try {
+      if (!['owner', 'admin'].includes(req.principal!.role)) return res.status(403).json({ error: 'Admin access required' })
+      const created = await createWorkspaceInvite(req.principal!, req.body)
+      await auditEvent(req.principal!, 'invite.created', {
+        type: 'invite', id: created.invite.id, metadata: { email: created.invite.email, role: created.invite.role },
+      }, auditContext(req))
+      res.status(201).json(created)
+    } catch (e) { next(e) }
+  })
+
+  app.patch('/api/admin/members/:userId', requireAuth(), requireScope('admin'), rateLimit(), validate(MemberRoleRequest), async (req, res, next) => {
+    try {
+      if (req.principal!.role !== 'owner') return res.status(403).json({ error: 'Owner access required' })
+      const current = (await getPool().query(
+        `SELECT role FROM memberships WHERE org_id = $1 AND user_id = $2`,
+        [req.principal!.orgId, routeParam(req, 'userId')],
+      )).rows[0]
+      if (!current) return res.status(404).json({ error: 'Member not found' })
+      if (current.role === 'owner' && req.body.role !== 'owner') {
+        const owners = Number((await getPool().query(
+          `SELECT count(*)::int AS count FROM memberships WHERE org_id = $1 AND role = 'owner'`,
+          [req.principal!.orgId],
+        )).rows[0]?.count || 0)
+        if (owners <= 1) return res.status(409).json({ error: 'The last owner cannot be demoted.' })
+      }
+      const member = (await getPool().query(
+        `UPDATE memberships SET role = $3 WHERE org_id = $1 AND user_id = $2 RETURNING *`,
+        [req.principal!.orgId, routeParam(req, 'userId'), req.body.role],
+      )).rows[0]
+      await auditEvent(req.principal!, 'member.role_changed', {
+        type: 'user', id: routeParam(req, 'userId'), metadata: { from: current.role, to: req.body.role },
+      }, auditContext(req))
+      res.json({ member })
+    } catch (e) { next(e) }
+  })
+
+  app.post('/api/admin/workspaces', requireAuth(), requireScope('admin'), rateLimit(), validate(WorkspaceRequest), async (req, res, next) => {
+    try {
+      if (!['owner', 'admin'].includes(req.principal!.role)) return res.status(403).json({ error: 'Admin access required' })
+      const workspace = (await getPool().query(
+        `INSERT INTO workspaces (org_id, name) VALUES ($1,$2) RETURNING *`,
+        [req.principal!.orgId, req.body.name],
+      )).rows[0]
+      await auditEvent(req.principal!, 'workspace.created', { type: 'workspace', id: workspace.id }, auditContext(req))
+      res.status(201).json({ workspace })
+    } catch (e) { next(e) }
+  })
+
+  app.put('/api/admin/retention', requireAuth(), requireScope('admin'), rateLimit(), validate(RetentionPolicyRequest), async (req, res, next) => {
+    try {
+      if (!['owner', 'admin'].includes(req.principal!.role)) return res.status(403).json({ error: 'Admin access required' })
+      const retention = await saveRetentionPolicy(req.principal!, req.body)
+      await auditEvent(req.principal!, 'retention.updated', {
+        type: 'retention', metadata: { enabled: req.body.enabled, defaultDays: req.body.defaultDays },
+      }, auditContext(req))
+      res.json({ retention })
+    } catch (e) { next(e) }
+  })
+
+  app.post('/api/admin/retention/run', requireAuth(), requireScope('admin'), rateLimit(), async (req, res, next) => {
+    try {
+      if (!['owner', 'admin'].includes(req.principal!.role)) return res.status(403).json({ error: 'Admin access required' })
+      const dryRun = req.body?.dryRun !== false
+      const run = await runRetention(req.principal!, dryRun)
+      await auditEvent(req.principal!, dryRun ? 'retention.previewed' : 'retention.executed', {
+        type: 'retention', metadata: run,
+      }, auditContext(req))
+      res.json({ run })
+    } catch (e) { next(e) }
+  })
+
   // ── Local STT model control plane ──────────────────────────
-  app.get('/api/admin/stt', requireAuth(), rateLimit(), async (req, res, next) => {
+  app.get('/api/admin/stt', requireAuth(), requireScope('admin'), rateLimit(), async (req, res, next) => {
     try {
       if (!['owner', 'admin'].includes(req.principal!.role)) return res.status(403).json({ error: 'Admin access required' })
       const runtime = await whisperModels()
@@ -178,36 +326,36 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
     } catch (e) { next(e) }
   })
 
-  app.post('/api/admin/stt/models/download', requireAuth(), rateLimit(), async (req, res, next) => {
+  app.post('/api/admin/stt/models/download', requireAuth(), requireScope('admin'), rateLimit(), async (req, res, next) => {
     try {
       if (!['owner', 'admin'].includes(req.principal!.role)) return res.status(403).json({ error: 'Admin access required' })
       res.json(await whisperDownloadModel(String(req.body?.backend || ''), String(req.body?.model || '')))
     } catch (e) { next(e) }
   })
 
-  app.post('/api/admin/stt/models/activate', requireAuth(), rateLimit(), async (req, res, next) => {
+  app.post('/api/admin/stt/models/activate', requireAuth(), requireScope('admin'), rateLimit(), async (req, res, next) => {
     try {
       if (!['owner', 'admin'].includes(req.principal!.role)) return res.status(403).json({ error: 'Admin access required' })
       res.json(await whisperActivateModel(String(req.body?.backend || ''), String(req.body?.model || '')))
     } catch (e) { next(e) }
   })
 
-  app.delete('/api/admin/stt/models/:backend/:model', requireAuth(), rateLimit(), async (req, res, next) => {
+  app.delete('/api/admin/stt/models/:backend/:model', requireAuth(), requireScope('admin'), rateLimit(), async (req, res, next) => {
     try {
       if (!['owner', 'admin'].includes(req.principal!.role)) return res.status(403).json({ error: 'Admin access required' })
-      res.json(await whisperDeleteModel(req.params.backend, req.params.model))
+      res.json(await whisperDeleteModel(routeParam(req, 'backend'), routeParam(req, 'model')))
     } catch (e) { next(e) }
   })
 
   // ── Local meeting-intelligence runtime ─────────────────────
-  app.get('/api/admin/llm', requireAuth(), rateLimit(), async (req, res, next) => {
+  app.get('/api/admin/llm', requireAuth(), requireScope('admin'), rateLimit(), async (req, res, next) => {
     try {
       if (!['owner', 'admin'].includes(req.principal!.role)) return res.status(403).json({ error: 'Admin access required' })
       res.json({ config: await getWorkspaceLlmConfig(req.principal!.orgId) })
     } catch (e) { next(e) }
   })
 
-  app.put('/api/admin/llm', requireAuth(), rateLimit(), validate(LlmSettingsRequest), async (req, res, next) => {
+  app.put('/api/admin/llm', requireAuth(), requireScope('admin'), rateLimit(), validate(LlmSettingsRequest), async (req, res, next) => {
     try {
       if (!['owner', 'admin'].includes(req.principal!.role)) return res.status(403).json({ error: 'Admin access required' })
       if (req.body.endpoint && !isLocalEndpoint(req.body.endpoint)) {
@@ -218,7 +366,7 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
     } catch (e) { next(e) }
   })
 
-  app.post('/api/admin/llm/test', requireAuth(), rateLimit(), async (req, res, next) => {
+  app.post('/api/admin/llm/test', requireAuth(), requireScope('admin'), rateLimit(), async (req, res, next) => {
     try {
       if (!['owner', 'admin'].includes(req.principal!.role)) return res.status(403).json({ error: 'Admin access required' })
       const parsed = LlmSettingsRequest.safeParse(req.body?.config || await getWorkspaceLlmConfig(req.principal!.orgId))
@@ -290,6 +438,9 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
           details: parsed.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`),
         })
       }
+      if (process.env.STRICT_LOCAL_MODE === 'true' && parsed.data.webhookUrl && !isPrivateUrl(parsed.data.webhookUrl)) {
+        return res.status(403).json({ error: 'External completion webhooks are disabled in strict local mode.' })
+      }
       const blob = await persistUpload(req.file, req.principal!)
       const { webhookUrl, idempotencyKey: key, captureMeta, ...input } = parsed.data
       const job = await enqueueTranscribeJob(
@@ -313,18 +464,21 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
     app.post('/api/jobs', requireAuth(), requireScope('transcribe'), rateLimit(), validate(CreateJobRequest), async (req, res, next) => {
       try {
         const { webhookUrl, idempotencyKey, captureMeta, ...input } = req.body
+        if (process.env.STRICT_LOCAL_MODE === 'true' && webhookUrl && !isPrivateUrl(webhookUrl)) {
+          return res.status(403).json({ error: 'External completion webhooks are disabled in strict local mode.' })
+        }
         const job = await enqueueTranscribeJob(req.principal!, input, webhookUrl ?? null, { idempotencyKey, captureMeta })
         res.status(202).json({ job })
       } catch (e) { next(e) }
     })
   }
-  app.get('/api/jobs', requireAuth(), rateLimit(), async (req, res, next) => {
+  app.get('/api/jobs', requireAuth(), requireScope('read'), rateLimit(), async (req, res, next) => {
     try { res.json({ jobs: await listJobs(req.principal!, Number(req.query.limit || 30)) }) }
     catch (e) { next(e) }
   })
-  app.get('/api/jobs/:id', requireAuth(), rateLimit(), async (req, res, next) => {
+  app.get('/api/jobs/:id', requireAuth(), requireScope('read'), rateLimit(), async (req, res, next) => {
     try {
-      const job = await getJob(req.principal!, req.params.id)
+      const job = await getJob(req.principal!, routeParam(req, 'id'))
       if (!job) return res.status(404).json({ error: 'Job not found' })
       res.json({ job })
     } catch (e) { next(e) }
@@ -332,19 +486,19 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
 
   app.post('/api/jobs/:id/retry', requireAuth(), requireScope('transcribe'), rateLimit(), async (req, res, next) => {
     try {
-      const job = await retryJob(req.principal!, req.params.id)
+      const job = await retryJob(req.principal!, routeParam(req, 'id'))
       if (!job) return res.status(404).json({ error: 'Failed job not found' })
       res.status(202).json({ job })
     } catch (e) { next(e) }
   })
 
   // ── Transcripts library ────────────────────────────────────
-  app.post('/api/transcripts', requireAuth(), rateLimit(), validate(CreateTranscriptRequest), async (req, res, next) => {
+  app.post('/api/transcripts', requireAuth(), requireScope('write'), rateLimit(), validate(CreateTranscriptRequest), async (req, res, next) => {
     try { res.status(201).json({ transcript: await createTranscript(req.principal!, req.body) }) }
     catch (e) { next(e) }
   })
 
-  app.get('/api/transcripts', requireAuth(), rateLimit(), async (req, res, next) => {
+  app.get('/api/transcripts', requireAuth(), requireScope('read'), rateLimit(), async (req, res, next) => {
     try {
       const q = ListTranscriptsQuery.safeParse(req.query)
       if (!q.success) return res.status(400).json({ error: 'Invalid query' })
@@ -352,17 +506,18 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
     } catch (e) { next(e) }
   })
 
-  app.get('/api/transcripts/:id', requireAuth(), rateLimit(), async (req, res, next) => {
+  app.get('/api/transcripts/:id', requireAuth(), requireScope('read'), rateLimit(), async (req, res, next) => {
     try {
-      const t = await getTranscript(req.principal!, req.params.id)
+      const t = await getTranscript(req.principal!, routeParam(req, 'id'))
       if (!t) return res.status(404).json({ error: 'Transcript not found' })
+      await auditEvent(req.principal!, 'transcript.read', { type: 'transcript', id: t.id }, auditContext(req))
       res.json({ transcript: t })
     } catch (e) { next(e) }
   })
 
-  app.patch('/api/transcripts/:id', requireAuth(), rateLimit(), validate(UpdateTranscriptRequest), async (req, res, next) => {
+  app.patch('/api/transcripts/:id', requireAuth(), requireScope('write'), rateLimit(), validate(UpdateTranscriptRequest), async (req, res, next) => {
     try {
-      const transcript = await updateTranscript(req.principal!, req.params.id, req.body)
+      const transcript = await updateTranscript(req.principal!, routeParam(req, 'id'), req.body)
       if (!transcript) return res.status(404).json({ error: 'Transcript not found' })
       await emitIntegrationEvent(req.principal!, 'transcript.updated', {
         transcriptId: transcript.id, title: transcript.title, fields: Object.keys(req.body),
@@ -371,27 +526,27 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
     } catch (e) { next(e) }
   })
 
-  app.post('/api/transcripts/:id/speakers/:speaker', requireAuth(), rateLimit(), validate(RenameSpeakerRequest), async (req, res, next) => {
+  app.post('/api/transcripts/:id/speakers/:speaker', requireAuth(), requireScope('write'), rateLimit(), validate(RenameSpeakerRequest), async (req, res, next) => {
     try {
       const transcript = await renameTranscriptSpeaker(
-        req.principal!, req.params.id, req.params.speaker, req.body.name,
+        req.principal!, routeParam(req, 'id'), routeParam(req, 'speaker'), req.body.name,
       )
       if (!transcript) return res.status(404).json({ error: 'Transcript not found' })
       res.json({ transcript })
     } catch (e) { next(e) }
   })
 
-  app.get('/api/transcripts/:id/revisions', requireAuth(), rateLimit(), async (req, res, next) => {
+  app.get('/api/transcripts/:id/revisions', requireAuth(), requireScope('read'), rateLimit(), async (req, res, next) => {
     try {
-      const revisions = await listTranscriptRevisions(req.principal!, req.params.id)
+      const revisions = await listTranscriptRevisions(req.principal!, routeParam(req, 'id'))
       if (!revisions) return res.status(404).json({ error: 'Transcript not found' })
       res.json({ revisions })
     } catch (e) { next(e) }
   })
 
-  app.get('/api/transcripts/:id/audio', requireAuth(), rateLimit(), async (req, res, next) => {
+  app.get('/api/transcripts/:id/audio', requireAuth(), requireScope('read'), rateLimit(), async (req, res, next) => {
     try {
-      const transcript = await getTranscript(req.principal!, req.params.id)
+      const transcript = await getTranscript(req.principal!, routeParam(req, 'id'))
       if (!transcript) return res.status(404).json({ error: 'Transcript not found' })
       if (!transcript.audio_blob_id) return res.status(404).json({ error: 'Source audio is unavailable' })
       const blob = (await getPool().query(
@@ -406,17 +561,18 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
     } catch (e) { next(e) }
   })
 
-  app.delete('/api/transcripts/:id', requireAuth(), rateLimit(), async (req, res, next) => {
+  app.delete('/api/transcripts/:id', requireAuth(), requireScope('write'), rateLimit(), async (req, res, next) => {
     try {
-      const gone = await deleteTranscript(req.principal!, req.params.id)
+      const gone = await deleteTranscript(req.principal!, routeParam(req, 'id'))
       if (!gone) return res.status(404).json({ error: 'Transcript not found' })
+      await auditEvent(req.principal!, 'transcript.deleted', { type: 'transcript', id: gone.id }, auditContext(req))
       res.json({ deleted: gone.id })
     } catch (e) { next(e) }
   })
 
-  app.post('/api/transcripts/:id/actions', requireAuth(), rateLimit(), validate(ActionItemRequest), async (req, res, next) => {
+  app.post('/api/transcripts/:id/actions', requireAuth(), requireScope('write'), rateLimit(), validate(ActionItemRequest), async (req, res, next) => {
     try {
-      const t = await getTranscript(req.principal!, req.params.id)
+      const t = await getTranscript(req.principal!, routeParam(req, 'id'))
       if (!t) return res.status(404).json({ error: 'Transcript not found' })
       const result = t.result && typeof t.result === 'object' && !Array.isArray(t.result) ? t.result : {}
       const actionItems = Array.isArray(result.actionItems) ? result.actionItems : []
@@ -424,7 +580,7 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
       const updated = (await getPool().query(
         `UPDATE transcripts SET result = $3::jsonb, updated_at = now()
          WHERE org_id = $1 AND id = $2 RETURNING *`,
-        [req.principal!.orgId, req.params.id, JSON.stringify({ ...result, actionItems: [...actionItems, action] })],
+        [req.principal!.orgId, routeParam(req, 'id'), JSON.stringify({ ...result, actionItems: [...actionItems, action] })],
       )).rows[0]
       await emitIntegrationEvent(req.principal!, 'action.created', {
         transcriptId: updated.id, title: updated.title, action,
@@ -433,27 +589,27 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
     } catch (e) { next(e) }
   })
 
-  app.get('/api/glossary', requireAuth(), rateLimit(), async (req, res, next) => {
+  app.get('/api/glossary', requireAuth(), requireScope('read'), rateLimit(), async (req, res, next) => {
     try { res.json({ terms: await listGlossary(req.principal!) }) }
     catch (e) { next(e) }
   })
 
-  app.post('/api/glossary', requireAuth(), rateLimit(), validate(GlossaryTermRequest), async (req, res, next) => {
+  app.post('/api/glossary', requireAuth(), requireScope('write'), rateLimit(), validate(GlossaryTermRequest), async (req, res, next) => {
     try {
       res.status(201).json({ term: await upsertGlossaryTerm(req.principal!, req.body.term, req.body.replacement) })
     } catch (e) { next(e) }
   })
 
-  app.delete('/api/glossary/:id', requireAuth(), rateLimit(), async (req, res, next) => {
+  app.delete('/api/glossary/:id', requireAuth(), requireScope('write'), rateLimit(), async (req, res, next) => {
     try {
-      const deleted = await deleteGlossaryTerm(req.principal!, req.params.id)
+      const deleted = await deleteGlossaryTerm(req.principal!, routeParam(req, 'id'))
       if (!deleted) return res.status(404).json({ error: 'Glossary term not found' })
       res.json({ deleted: deleted.id })
     } catch (e) { next(e) }
   })
 
   // ── Local knowledge search ─────────────────────────────────
-  app.get('/api/search', requireAuth(), rateLimit(), async (req, res, next) => {
+  app.get('/api/search', requireAuth(), requireScope('read'), rateLimit(), async (req, res, next) => {
     try {
       const parsed = KnowledgeSearchQuery.safeParse(req.query)
       if (!parsed.success) return res.status(400).json({ error: 'Invalid search filters' })
@@ -469,7 +625,7 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
     } catch (e) { next(e) }
   })
 
-  app.get('/api/collections', requireAuth(), rateLimit(), async (req, res, next) => {
+  app.get('/api/collections', requireAuth(), requireScope('read'), rateLimit(), async (req, res, next) => {
     try {
       const rows = await getPool().query(
         `SELECT c.id, c.name, c.color, c.created_at, count(t.id)::int AS transcript_count
@@ -481,7 +637,7 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
     } catch (e) { next(e) }
   })
 
-  app.post('/api/collections', requireAuth(), rateLimit(), validate(CollectionRequest), async (req, res, next) => {
+  app.post('/api/collections', requireAuth(), requireScope('write'), rateLimit(), validate(CollectionRequest), async (req, res, next) => {
     try {
       const row = await getPool().query(
         `INSERT INTO collections (org_id, name, color) VALUES ($1,$2,$3)
@@ -492,18 +648,18 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
     } catch (e) { next(e) }
   })
 
-  app.delete('/api/collections/:id', requireAuth(), rateLimit(), async (req, res, next) => {
+  app.delete('/api/collections/:id', requireAuth(), requireScope('write'), rateLimit(), async (req, res, next) => {
     try {
       const row = await getPool().query(
         `DELETE FROM collections WHERE org_id = $1 AND id = $2 RETURNING id`,
-        [req.principal!.orgId, req.params.id],
+        [req.principal!.orgId, routeParam(req, 'id')],
       )
       if (!row.rows[0]) return res.status(404).json({ error: 'Collection not found' })
       res.json({ deleted: row.rows[0].id })
     } catch (e) { next(e) }
   })
 
-  app.get('/api/saved-searches', requireAuth(), rateLimit(), async (req, res, next) => {
+  app.get('/api/saved-searches', requireAuth(), requireScope('read'), rateLimit(), async (req, res, next) => {
     try {
       const rows = await getPool().query(
         `SELECT id, name, query, created_at FROM saved_searches
@@ -514,7 +670,7 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
     } catch (e) { next(e) }
   })
 
-  app.post('/api/saved-searches', requireAuth(), rateLimit(), validate(SavedSearchRequest), async (req, res, next) => {
+  app.post('/api/saved-searches', requireAuth(), requireScope('write'), rateLimit(), validate(SavedSearchRequest), async (req, res, next) => {
     try {
       const row = await getPool().query(
         `INSERT INTO saved_searches (org_id, owner_id, name, query) VALUES ($1,$2,$3,$4) RETURNING *`,
@@ -524,20 +680,20 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
     } catch (e) { next(e) }
   })
 
-  app.delete('/api/saved-searches/:id', requireAuth(), rateLimit(), async (req, res, next) => {
+  app.delete('/api/saved-searches/:id', requireAuth(), requireScope('write'), rateLimit(), async (req, res, next) => {
     try {
       const row = await getPool().query(
         `DELETE FROM saved_searches WHERE org_id = $1 AND owner_id = $2 AND id = $3 RETURNING id`,
-        [req.principal!.orgId, req.principal!.userId, req.params.id],
+        [req.principal!.orgId, req.principal!.userId, routeParam(req, 'id')],
       )
       if (!row.rows[0]) return res.status(404).json({ error: 'Saved search not found' })
       res.json({ deleted: row.rows[0].id })
     } catch (e) { next(e) }
   })
 
-  app.post('/api/search/index/:id', requireAuth(), rateLimit(), async (req, res, next) => {
+  app.post('/api/search/index/:id', requireAuth(), requireScope('write'), rateLimit(), async (req, res, next) => {
     try {
-      const transcript = await getTranscript(req.principal!, req.params.id)
+      const transcript = await getTranscript(req.principal!, routeParam(req, 'id'))
       if (!transcript) return res.status(404).json({ error: 'Transcript not found' })
       const config = await getWorkspaceLlmConfig(req.principal!.orgId)
       const indexed = await indexTranscriptEmbedding(req.principal!, transcript, {
@@ -547,7 +703,7 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
     } catch (e) { next(e) }
   })
 
-  app.post('/api/knowledge/ask', requireAuth(), rateLimit(), validate(AskKnowledgeRequest), async (req, res, next) => {
+  app.post('/api/knowledge/ask', requireAuth(), requireScope('read'), rateLimit(), validate(AskKnowledgeRequest), async (req, res, next) => {
     try {
       const p = req.principal!
       let rows: any[]
@@ -591,13 +747,16 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
     } catch (e) { next(e) }
   })
 
-  app.get('/api/transcripts/:id/export/:format', requireAuth(), rateLimit(), async (req, res, next) => {
+  app.get('/api/transcripts/:id/export/:format', requireAuth(), requireScope('export'), rateLimit(), async (req, res, next) => {
     try {
-      const format = req.params.format as ExportFormat
+      const format = routeParam(req, 'format') as ExportFormat
       if (!EXPORT_FORMATS.includes(format)) return res.status(400).json({ error: `format must be one of ${EXPORT_FORMATS.join(', ')}` })
-      const t = await getTranscript(req.principal!, req.params.id)
+      const t = await getTranscript(req.principal!, routeParam(req, 'id'))
       if (!t) return res.status(404).json({ error: 'Transcript not found' })
       const { body, mimeType, extension } = exportTranscript(format, exportableTranscript(t))
+      await auditEvent(req.principal!, 'transcript.exported', {
+        type: 'transcript', id: t.id, metadata: { format },
+      }, auditContext(req))
       res.setHeader('Content-Type', mimeType)
       res.setHeader('Content-Disposition', `attachment; filename="${t.title.replace(/[^\w.-]+/g, '_').slice(0, 60)}.${extension}"`)
       res.send(body)
@@ -605,7 +764,7 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
   })
 
   // ── Integration routing ───────────────────────────────────
-  app.get('/api/integrations', requireAuth(), rateLimit(), async (req, res, next) => {
+  app.get('/api/integrations', requireAuth(), requireScope('admin'), rateLimit(), async (req, res, next) => {
     try {
       const [webhooks, deliveries] = await Promise.all([
         getPool().query(
@@ -622,81 +781,101 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
     } catch (e) { next(e) }
   })
 
-  app.post('/api/integrations/webhooks', requireAuth(), rateLimit(), validate(WebhookRequest), async (req, res, next) => {
+  app.post('/api/integrations/webhooks', requireAuth(), requireScope('admin'), rateLimit(), validate(WebhookRequest), async (req, res, next) => {
     try {
       if (!['owner', 'admin'].includes(req.principal!.role)) return res.status(403).json({ error: 'Admin access required' })
+      if (process.env.STRICT_LOCAL_MODE === 'true') return res.status(403).json({ error: 'External webhooks are disabled in strict local mode.' })
       const hash = createHash('sha256').update(process.env.WEBHOOK_SECRET || 'change-me-webhooks').digest('hex')
       const row = await getPool().query(
         `INSERT INTO webhooks (org_id, name, url, secret_hash, events)
          VALUES ($1,$2,$3,$4,$5) RETURNING id, name, url, events, created_at`,
         [req.principal!.orgId, req.body.name, req.body.url, hash, req.body.events],
       )
+      await auditEvent(req.principal!, 'webhook.created', {
+        type: 'webhook', id: row.rows[0].id,
+        metadata: { name: req.body.name, destination: new URL(req.body.url).host, events: req.body.events },
+      }, auditContext(req))
       res.status(201).json({ webhook: row.rows[0] })
     } catch (e) { next(e) }
   })
 
-  app.delete('/api/integrations/webhooks/:id', requireAuth(), rateLimit(), async (req, res, next) => {
+  app.delete('/api/integrations/webhooks/:id', requireAuth(), requireScope('admin'), rateLimit(), async (req, res, next) => {
     try {
       if (!['owner', 'admin'].includes(req.principal!.role)) return res.status(403).json({ error: 'Admin access required' })
       const row = await getPool().query(
         `DELETE FROM webhooks WHERE org_id = $1 AND id = $2 RETURNING id`,
-        [req.principal!.orgId, req.params.id],
+        [req.principal!.orgId, routeParam(req, 'id')],
       )
       if (!row.rows[0]) return res.status(404).json({ error: 'Webhook not found' })
+      await auditEvent(req.principal!, 'webhook.deleted', {
+        type: 'webhook', id: row.rows[0].id,
+      }, auditContext(req))
       res.json({ deleted: row.rows[0].id })
     } catch (e) { next(e) }
   })
 
-  app.post('/api/transcripts/:id/deliver', requireAuth(), rateLimit(), validate(DeliverTranscriptRequest), async (req, res, next) => {
+  app.post('/api/transcripts/:id/deliver', requireAuth(), requireScope('export'), rateLimit(), validate(DeliverTranscriptRequest), async (req, res, next) => {
     try {
-      const transcript = await getTranscript(req.principal!, req.params.id)
+      const transcript = await getTranscript(req.principal!, routeParam(req, 'id'))
       if (!transcript) return res.status(404).json({ error: 'Transcript not found' })
       const delivery = await deliverTranscript(
         req.principal!, exportableTranscript(transcript), req.body.adapter,
         req.body.format, req.body.recipient,
       )
+      await auditEvent(req.principal!, 'transcript.delivered', {
+        type: 'transcript', id: routeParam(req, 'id'),
+        metadata: { adapter: req.body.adapter, destination: delivery.destination, format: req.body.format },
+      }, auditContext(req))
       res.status(202).json({ delivery })
     } catch (e) { next(e) }
   })
 
   // ── Shares ─────────────────────────────────────────────────
-  app.post('/api/transcripts/:id/shares', requireAuth(), rateLimit(), validate(CreateShareRequest), async (req, res, next) => {
+  app.post('/api/transcripts/:id/shares', requireAuth(), requireScope('share'), rateLimit(), validate(CreateShareRequest), async (req, res, next) => {
     try {
-      if (process.env.SHARING_ENABLED === 'false') return res.status(403).json({ error: 'Share links are disabled for this deployment.' })
-      const share = await createShare(req.principal!, req.params.id, req.body)
+      if (process.env.STRICT_LOCAL_MODE === 'true' || process.env.SHARING_ENABLED === 'false') return res.status(403).json({ error: 'Share links are disabled for this deployment.' })
+      const share = await createShare(req.principal!, routeParam(req, 'id'), req.body)
       if (!share) return res.status(404).json({ error: 'Transcript not found' })
+      await auditEvent(req.principal!, 'share.created', {
+        type: 'transcript', id: routeParam(req, 'id'), metadata: { expiresAt: share.expires_at || null },
+      }, auditContext(req))
       res.status(201).json({ share })
     } catch (e) { next(e) }
   })
 
   app.get('/api/share/:token', async (req, res, next) => {
     try {
-      if (process.env.SHARING_ENABLED === 'false') return res.status(404).json({ error: 'Share links are disabled.' })
+      if (process.env.STRICT_LOCAL_MODE === 'true' || process.env.SHARING_ENABLED === 'false') return res.status(404).json({ error: 'Share links are disabled.' })
       if (process.env.SHARE_LOCAL_ONLY === 'true' && !isLocalRequest(req.ip)) {
         return res.status(403).json({ error: 'This share is only available on the local network.' })
       }
-      const t = await getByShareToken(req.params.token)
+      const t = await getByShareToken(routeParam(req, 'token'))
       if (!t) return res.status(404).json({ error: 'Share not found or expired' })
       res.json({ transcript: t })
     } catch (e) { next(e) }
   })
 
   // ── API keys ───────────────────────────────────────────────
-  app.post('/api/api-keys', requireAuth(), rateLimit(), validate(CreateApiKeyRequest), async (req, res, next) => {
+  app.post('/api/api-keys', requireAuth(), requireScope('admin'), rateLimit(), validate(CreateApiKeyRequest), async (req, res, next) => {
     try {
       const p = req.principal!
+      if (!['owner', 'admin'].includes(p.role)) return res.status(403).json({ error: 'Admin access required' })
       const k = generateApiKey()
       const row = await getPool().query(
         `INSERT INTO api_keys (org_id, owner_id, name, key_prefix, key_hash, scopes)
          VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, name, key_prefix, scopes, created_at`,
         [p.orgId, p.userId, req.body.name, k.prefix, k.hash, req.body.scopes],
       )
+      await auditEvent(p, 'api_key.created', {
+        type: 'api_key', id: row.rows[0].id, metadata: { name: req.body.name, scopes: req.body.scopes },
+      }, auditContext(req))
       res.status(201).json({ apiKey: row.rows[0], token: k.token }) // token shown once
     } catch (e) { next(e) }
   })
 
-  app.get('/api/api-keys', requireAuth(), rateLimit(), async (req, res, next) => {
+  app.get('/api/api-keys', requireAuth(), requireScope('admin'), rateLimit(), async (req, res, next) => {
     try {
+      if (!['owner', 'admin'].includes(req.principal!.role)) return res.status(403).json({ error: 'Admin access required' })
       const rows = await getPool().query(
         `SELECT id, name, key_prefix, scopes, last_used_at, created_at
          FROM api_keys WHERE org_id = $1 AND revoked_at IS NULL ORDER BY created_at DESC`,
@@ -706,18 +885,21 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
     } catch (e) { next(e) }
   })
 
-  app.delete('/api/api-keys/:id', requireAuth(), rateLimit(), async (req, res, next) => {
+  app.delete('/api/api-keys/:id', requireAuth(), requireScope('admin'), rateLimit(), async (req, res, next) => {
     try {
-      await getPool().query(
-        `UPDATE api_keys SET revoked_at = now() WHERE id = $1 AND org_id = $2`,
-        [req.params.id, req.principal!.orgId],
-      )
-      res.json({ revoked: req.params.id })
+      if (!['owner', 'admin'].includes(req.principal!.role)) return res.status(403).json({ error: 'Admin access required' })
+      const revoked = (await getPool().query(
+        `UPDATE api_keys SET revoked_at = now() WHERE id = $1 AND org_id = $2 AND revoked_at IS NULL RETURNING id`,
+        [routeParam(req, 'id'), req.principal!.orgId],
+      )).rows[0]
+      if (!revoked) return res.status(404).json({ error: 'API key not found' })
+      await auditEvent(req.principal!, 'api_key.revoked', { type: 'api_key', id: routeParam(req, 'id') }, auditContext(req))
+      res.json({ revoked: routeParam(req, 'id') })
     } catch (e) { next(e) }
   })
 
   // ── Meeting bot runs ──────────────────────────────────────
-  app.post('/api/meeting-bot/runs', requireAuth(), rateLimit(), validate(CreateMeetingBotRunRequest), async (req, res, next) => {
+  app.post('/api/meeting-bot/runs', requireAuth(), requireScope('transcribe'), rateLimit(), validate(CreateMeetingBotRunRequest), async (req, res, next) => {
     try {
       const p = req.principal!
       let provider: 'zoom' | 'meet' | 'teams'
@@ -736,7 +918,7 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
     } catch (e) { next(e) }
   })
 
-  app.get('/api/meeting-bot/runs', requireAuth(), rateLimit(), async (req, res, next) => {
+  app.get('/api/meeting-bot/runs', requireAuth(), requireScope('read'), rateLimit(), async (req, res, next) => {
     try {
       const rows = await getPool().query(
         `SELECT id, org_id, calendar_event_id, provider, join_url, state, job_id, transcript_id, error, created_at, updated_at, started_at, finished_at
@@ -747,13 +929,13 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
     } catch (e) { next(e) }
   })
 
-  app.post('/api/meeting-bot/runs/:id/start', requireAuth(), rateLimit(), async (req, res, next) => {
+  app.post('/api/meeting-bot/runs/:id/start', requireAuth(), requireScope('transcribe'), rateLimit(), async (req, res, next) => {
     try {
       const p = req.principal!
       const found = await getPool().query(
         `SELECT id, org_id, calendar_event_id, provider, join_url, state, job_id, transcript_id, error, created_at, updated_at, started_at, finished_at
          FROM meeting_bot_runs WHERE org_id = $1 AND id = $2`,
-        [p.orgId, req.params.id],
+        [p.orgId, routeParam(req, 'id')],
       )
       const run = found.rows[0]
       if (!run) return res.status(404).json({ error: 'Bot run not found' })
@@ -789,7 +971,7 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
          SET state = 'left', transcript_id = $3, started_at = COALESCE(started_at, now()), finished_at = now(), updated_at = now()
          WHERE org_id = $1 AND id = $2
          RETURNING id, org_id, calendar_event_id, provider, join_url, state, job_id, transcript_id, error, created_at, updated_at, started_at, finished_at`,
-        [p.orgId, req.params.id, transcript.id],
+        [p.orgId, routeParam(req, 'id'), transcript.id],
       )
       res.json({ run: updated.rows[0], transcript, mode: 'simulated' })
     } catch (e) { next(e) }
@@ -865,9 +1047,9 @@ export function createApp(opts: { enableJobs?: boolean } = {}): Express {
     }
   }
 
-  app.post('/api/transcribe', requireAuth(), rateLimit(), upload.single('audio'),
+  app.post('/api/transcribe', requireAuth(), requireScope('transcribe'), rateLimit(), upload.single('audio'),
     (req, res) => syncTranscribe(req, res))
-  app.post('/api/transcribe-direct', requireAuth(), rateLimit(), upload.single('audio'),
+  app.post('/api/transcribe-direct', requireAuth(), requireScope('transcribe'), rateLimit(), upload.single('audio'),
     (req, res) => syncTranscribe(req, res, String(req.body.apiKey || '')))
 
   app.use(errorHandler())

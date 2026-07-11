@@ -176,6 +176,21 @@ services:
     volumes:
       - ${WATCH_DIR:-./data/watch}:/watch
 
+  retention:
+    build:
+      context: .
+      target: app
+    command: npm run retention
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      <<: *app-env
+      RETENTION_DAEMON: "true"
+      RETENTION_INTERVAL_HOURS: ${RETENTION_INTERVAL_HOURS:-24}
+    volumes: *app-volumes
+
   frontend:
     build:
       context: .

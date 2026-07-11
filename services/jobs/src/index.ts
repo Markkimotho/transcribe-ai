@@ -130,6 +130,15 @@ export async function notifyWebhook(job: {
   id: string; status: never; transcript_id: string | null; error: string | null; webhook_url: string | null
 }): Promise<void> {
   if (!job.webhook_url) return
+  if (process.env.STRICT_LOCAL_MODE === 'true') {
+    try {
+      const host = new URL(job.webhook_url).hostname.toLowerCase()
+      const privateHost = host === 'localhost' || host === '127.0.0.1' || host === '::1'
+        || host.startsWith('10.') || host.startsWith('192.168.')
+        || /^172\.(1[6-9]|2\d|3[01])\./.test(host) || !host.includes('.')
+      if (!privateHost) return
+    } catch { return }
+  }
   const payload = buildWebhookPayload(job)
   const body = JSON.stringify(payload)
   const secret = process.env.WEBHOOK_SECRET || 'change-me-webhooks'

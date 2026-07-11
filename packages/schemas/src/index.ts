@@ -227,9 +227,10 @@ export const IngestRequest = z.object({
 export type IngestRequest = z.infer<typeof IngestRequest>
 
 // ── API keys / shares ────────────────────────────────────────
+export const ApiKeyScope = z.enum(['transcribe', 'read', 'write', 'export', 'share', 'admin'])
 export const CreateApiKeyRequest = z.object({
   name: z.string().min(1).max(120),
-  scopes: z.array(z.string()).default(['transcribe', 'read']),
+  scopes: z.array(ApiKeyScope).min(1).default(['transcribe', 'read']),
 })
 export const CreateShareRequest = z.object({
   kind: z.enum(['link']).default('link'),
@@ -259,6 +260,28 @@ export const ActionItemRequest = z.object({
   owner: z.string().max(200).optional(),
   dueDate: z.string().max(40).optional(),
   status: z.enum(['open', 'done']).default('open'),
+})
+
+export const InviteRequest = z.object({
+  email: z.string().email(),
+  role: Role.exclude(['owner']).default('member'),
+  expiresInDays: z.number().int().min(1).max(30).default(7),
+})
+
+export const AcceptInviteRequest = z.object({
+  token: z.string().min(20),
+  password: z.string().min(8).max(200),
+  displayName: z.string().min(1).max(120).optional(),
+})
+
+export const MemberRoleRequest = z.object({ role: Role })
+export const WorkspaceRequest = z.object({ name: z.string().min(1).max(120) })
+
+export const RetentionPolicyRequest = z.object({
+  enabled: z.boolean(),
+  defaultDays: z.number().int().min(1).max(36500),
+  sourceRules: z.record(TranscriptSource, z.number().int().min(1).max(36500)).default({}),
+  deleteAudio: z.boolean().default(true),
 })
 
 export const MeetingProvider = z.enum(['zoom', 'meet', 'teams'])

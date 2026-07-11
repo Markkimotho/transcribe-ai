@@ -18,7 +18,7 @@ const app = createApp()
 if (process.env.SERVE_FRONTEND !== 'false') {
   const dist = join(__dirname, '../../../dist')
   app.use(express.static(dist))
-  app.get('*', (_req, res) => { res.sendFile(join(dist, 'index.html')) })
+  app.get('{*splat}', (_req, res) => { res.sendFile(join(dist, 'index.html')) })
 }
 
 const server = createServer(app)

@@ -13,6 +13,7 @@ import TranscriptOutput from './components/TranscriptOutput'
 import LiveTranscription from './components/LiveTranscription'
 import Footer from './components/Footer'
 import LoginPage from './components/auth/LoginPage'
+import InviteAcceptPage from './components/auth/InviteAcceptPage'
 import LibraryPage from './components/library/LibraryPage'
 import TranscriptDetailPage from './components/library/TranscriptDetailPage'
 import SharePage from './components/library/SharePage'
@@ -149,6 +150,7 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Shell><LoginPage /></Shell>} />
+          <Route path="/join" element={<Shell><InviteAcceptPage /></Shell>} />
           <Route path="/onboarding" element={<Shell><RequireAuth><OnboardingPage /></RequireAuth></Shell>} />
           <Route path="/share/:token" element={<Shell><SharePage /></Shell>} />
           <Route path="/" element={<Shell><RequireAuth><RequireOnboarding><TranscribeScreen /></RequireOnboarding></RequireAuth></Shell>} />

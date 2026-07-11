@@ -10,19 +10,21 @@ import { nextWebhookDelayMs, signWebhookBody } from '../../jobs/src/state.ts'
 export type DeliveryAdapter = 'local' | 'nextcloud' | 'slack' | 'teams' | 'email'
 
 export function integrationStatus() {
+  const strictLocal = process.env.STRICT_LOCAL_MODE === 'true'
   return {
     sharing: {
-      enabled: process.env.SHARING_ENABLED !== 'false',
+      enabled: !strictLocal && process.env.SHARING_ENABLED !== 'false',
       localOnly: process.env.SHARE_LOCAL_ONLY === 'true',
     },
     adapters: {
       local: Boolean(process.env.INTEGRATION_FILE_SYNC_DIR),
-      nextcloud: Boolean(process.env.NEXTCLOUD_WEBDAV_URL && process.env.NEXTCLOUD_USERNAME && process.env.NEXTCLOUD_PASSWORD),
-      slack: Boolean(process.env.SLACK_WEBHOOK_URL),
-      teams: Boolean(process.env.TEAMS_WEBHOOK_URL),
-      email: Boolean(process.env.SMTP_URL),
+      nextcloud: !strictLocal && Boolean(process.env.NEXTCLOUD_WEBDAV_URL && process.env.NEXTCLOUD_USERNAME && process.env.NEXTCLOUD_PASSWORD),
+      slack: !strictLocal && Boolean(process.env.SLACK_WEBHOOK_URL),
+      teams: !strictLocal && Boolean(process.env.TEAMS_WEBHOOK_URL),
+      email: !strictLocal && Boolean(process.env.SMTP_URL),
     },
-    webhookSigning: Boolean(process.env.WEBHOOK_SECRET),
+    webhookSigning: !strictLocal && Boolean(process.env.WEBHOOK_SECRET),
+    strictLocal,
   }
 }
 
@@ -65,6 +67,7 @@ export async function emitIntegrationEvent(
   principal: Principal, event: IntegrationEvent, data: Record<string, unknown>,
   pool: pg.Pool = getPool(),
 ) {
+  if (process.env.STRICT_LOCAL_MODE === 'true') return []
   const rows = (await pool.query(
     `SELECT id, url FROM webhooks
      WHERE org_id = $1 AND disabled_at IS NULL AND $2 = ANY(events)`,
@@ -96,6 +99,11 @@ export async function deliverTranscript(
   pool: pg.Pool = getPool(),
 ) {
   const status = integrationStatus().adapters
+  if (process.env.STRICT_LOCAL_MODE === 'true' && adapter !== 'local') {
+    const error = new Error('External connectors are disabled in strict local mode') as Error & { status?: number }
+    error.status = 403
+    throw error
+  }
   if (!status[adapter]) {
     const error = new Error(`${adapter} integration is not configured`) as Error & { status?: number }
     error.status = 409

@@ -68,6 +68,15 @@ export async function login(email, password) {
   return data.user
 }
 
+export async function acceptInvite(token, password, displayName) {
+  const data = await json(await fetch('/api/auth/invites/accept', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, password, displayName }),
+  }))
+  setTokens(data)
+  return data
+}
+
 export async function me() { return json(await api('/api/me')) }
 
 // ── Library ──────────────────────────────────────────────────
@@ -274,14 +283,48 @@ export async function pollJob(id, { intervalMs = 2000, onProgress } = {}) {
 
 // ── API keys ─────────────────────────────────────────────────
 export async function listApiKeys() { return (await json(await api('/api/api-keys'))).apiKeys }
-export async function createApiKey(name) {
+export async function createApiKey(name, scopes = ['transcribe', 'read']) {
   return json(await api('/api/api-keys', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, scopes }),
   }))
 }
 export async function revokeApiKey(id) {
   return json(await api(`/api/api-keys/${id}`, { method: 'DELETE' }))
+}
+
+export async function getSecurityAdmin() {
+  return json(await api('/api/admin/security'))
+}
+
+export async function createInvite(payload) {
+  return json(await api('/api/admin/invites', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+  }))
+}
+
+export async function updateMemberRole(userId, role) {
+  return json(await api(`/api/admin/members/${userId}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role }),
+  }))
+}
+
+export async function createWorkspace(name) {
+  return json(await api('/api/admin/workspaces', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
+  }))
+}
+
+export async function saveRetentionPolicy(payload) {
+  return json(await api('/api/admin/retention', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+  }))
+}
+
+export async function runRetention(dryRun = true) {
+  return (await json(await api('/api/admin/retention/run', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dryRun }),
+  }))).run
 }
 
 // ── Local STT runtime ───────────────────────────────────────
